@@ -69,7 +69,7 @@ ${corpus}
 }`;
 
     try {
-        const raw = await callGemini(prompt);
+        const raw = await callGemini(prompt, { useGoogleSearch: true });
         if (!raw || typeof raw !== 'string') return null;
         const jsonStr = raw.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(jsonStr);
@@ -122,7 +122,7 @@ export async function extractGoldenKeywords(dna) {
 }`;
 
     try {
-        const raw = await callGemini(prompt);
+        const raw = await callGemini(prompt, { useGoogleSearch: true });
         if (!raw || typeof raw !== 'string') return [];
         const jsonStr = raw.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(jsonStr);
@@ -172,7 +172,7 @@ export async function recommendTitles(dna, goldenKeywords, category = '야담', 
 ]`;
 
     try {
-        const raw = await callGemini(prompt);
+        const raw = await callGemini(prompt, { useGoogleSearch: true });
         if (!raw || typeof raw !== 'string') return [];
         const jsonStr = raw.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(jsonStr);
@@ -238,7 +238,7 @@ ${sectionStr}
 }`;
 
     try {
-        const raw = await callGemini(prompt);
+        const raw = await callGemini(prompt, { useGoogleSearch: true });
         if (!raw || typeof raw !== 'string') return null;
         const jsonStr = raw.replace(/```json|```/g, '').trim();
         return JSON.parse(jsonStr);

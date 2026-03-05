@@ -62,6 +62,7 @@ export function resetClient() {
 }
 
 export async function callGemini(prompt, options = {}) {
+    const { jsonMode = false, useGoogleSearch = false } = options;
     const auth = await getClient();
     if (!auth) return null;
 
@@ -95,7 +96,8 @@ export async function callGemini(prompt, options = {}) {
                         generationConfig: {
                             response_mime_type: options.jsonMode ? 'application/json' : 'text/plain',
                             temperature: 0
-                        }
+                        },
+                        ...(useGoogleSearch && !jsonMode ? { tools: [{ google_search: {} }] } : {})
                     })
                 });
 
@@ -132,7 +134,8 @@ export async function callGemini(prompt, options = {}) {
                             generationConfig: {
                                 response_mime_type: options.jsonMode ? 'application/json' : 'text/plain',
                                 temperature: 0
-                            }
+                            },
+                            ...(useGoogleSearch && !jsonMode ? { tools: [{ google_search: {} }] } : {})
                         })
                     });
 
@@ -173,7 +176,8 @@ export async function callGemini(prompt, options = {}) {
                             generationConfig: {
                                 response_mime_type: options.jsonMode ? 'application/json' : 'text/plain',
                                 temperature: 0
-                            }
+                            },
+                            ...(useGoogleSearch && !jsonMode ? { tools: [{ google_search: {} }] } : {})
                         })
                     });
 
@@ -257,7 +261,7 @@ ${transcript ? `자막 내용: ${transcript}` : ''}
 JSON 배열로만 응답하세요 (다른 텍스트 없이):
 ["키워드1", "키워드2", ...]`;
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     if (!result || typeof result !== 'string') return fallbackKeywords(title, description);
 
     try {
@@ -311,7 +315,7 @@ JSON 객체로만 응답하세요:
 {"그룹명": "카테고리명", ...}`;
     }
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     if (!result || typeof result !== 'string') return isEconomy ? { categories: {}, economy_metadata: {} } : {};
 
     try {
@@ -334,7 +338,7 @@ ${transcriptText.substring(0, 2000)}
 
 요약(200자 이내, 텍스트만):`;
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     return (result && typeof result === 'string') ? result.trim().substring(0, 300) : '';
 }
 
@@ -378,7 +382,7 @@ JSON 배열로만 응답하세요:
 
 상위 10개만 점수 높은 순으로 반환하세요.`;
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     if (!result || typeof result !== 'string') {
         if (result && result.errorType) return result;
         return [];
@@ -482,7 +486,7 @@ ${commentsStr}
   "summary": "댓글 전체 분위기를 50자 이내로 요약"
 }`;
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     if (!result || typeof result !== 'string') {
         if (result && result.errorType === 'QUOTA_EXCEEDED') return { errorType: 'QUOTA_EXCEEDED' };
         return null;
@@ -553,7 +557,7 @@ JSON 객체로만 응답하세요:
   "risk_factors": ["주의할 점 1", "2"]
 }`;
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     if (!result || typeof result !== 'string') {
         if (result && result.errorType === 'QUOTA_EXCEEDED') return { errorType: 'QUOTA_EXCEEDED' };
         return null;
@@ -625,7 +629,7 @@ JSON 배열로만 응답하세요 (총 10개):
   ...
 ]`;
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     if (!result || typeof result !== 'string') {
         if (result && result.errorType) return result;
         return [];
@@ -676,7 +680,7 @@ JSON 객체로만 응답하세요:
 
 모든 답변은 한국어로 작성하며, JSON 데이터 외의 다른 텍스트는 포함하지 마세요.`;
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     if (!result || typeof result !== 'string') {
         if (result && result.errorType === 'QUOTA_EXCEEDED') return { errorType: 'QUOTA_EXCEEDED' };
         return null;
@@ -904,7 +908,7 @@ ${contextStr}
 JSON 배열로만 응답하세요:
     ["제목 1", ..., "제목 10"]`;
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     return parseGeminiJson(result, []);
 }
 
@@ -970,7 +974,7 @@ JSON 객체로만 응답하세요:
 }
 모든 내용은 한국어로 작성하세요.`;
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     return parseGeminiJson(result, null);
 }
 
@@ -1055,7 +1059,7 @@ ${contextStr}
 - 모든 내용은 한국어로 작성하세요.
 - JSON 데이터 외의 다른 텍스트는 포함하지 마세요.`;
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     return parseGeminiJson(result, null);
 }
 
@@ -1133,7 +1137,7 @@ ${content}
 
 수정된 대본: `;
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     return result || content;
 }
 
@@ -1182,7 +1186,7 @@ ${videoInfoStr}
 
         결과: `;
 
-    const result = await callGemini(prompt);
+    const result = await callGemini(prompt, { useGoogleSearch: true });
     console.log(`[AI 분석 원본] 채널: ${channelName}, 결과: "${typeof result === 'string' ? result.trim() : 'non-string'}"`);
     if (!result || typeof result !== 'string') return null;
 

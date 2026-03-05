@@ -126,7 +126,7 @@ export async function renderGaps(container, { api }) {
     if (s.yadamStatus === 'LOADING') {
       runYadamAnalysis();
     } else if (s.yadamData) {
-      renderGapResults(s.yadamData, '사건유형', '선택 카테고리', api, yadamCont);
+      renderGapResults(s.yadamData, '사건유형', '선택 카테고리', api, yadamCont, true);
     }
 
     // 2. Economy Mode
@@ -140,7 +140,7 @@ export async function renderGaps(container, { api }) {
     if (s.customStatus === 'LOADING' && s.customParams) {
       runCustomAnalysis(s.customParams.gx, s.customParams.gy);
     } else if (s.customData) {
-      renderGapResults(s.customData.data, s.customData.gx, s.customData.gy, api, customCont);
+      renderGapResults(s.customData.data, s.customData.gx, s.customData.gy, api, customCont, true);
     }
 
     // 4. Deep Analysis (Yadam/Custom)
@@ -230,7 +230,7 @@ export async function renderGaps(container, { api }) {
   restoreOrResume();
 }
 
-function renderGapResults(data, groupX, groupY, api, targetEl) {
+function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false) {
   const el = targetEl || document.getElementById('gap-results');
   let filterMode = 'all'; // Local state for filtering
 
@@ -394,7 +394,11 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
       ${statsHtml}
       ${topCombinedHtml}
       <div class="two-col">
-        <div class="chart-container">
+        <div class="chart-container" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:24px; box-sizing:border-box; ${rows.length === 0 || isRestore ? 'height:244px; overflow:hidden;' : 'overflow-y:auto;'}">
+          ${rows.length === 0 || isRestore ? `
+            <h4 style="color:#e2e8f0; font-size:16px; margin-bottom:0;">📊 요약 분석</h4>
+            <p style="color:#94a3b8; text-align:center; margin-top:70px;">분석을 실행하면 카테고리별 분포가<br>여기에 표시됩니다.</p>
+          ` : `
           <div class="flex-between mb-16">
             <h4>📊 요약 분석</h4>
           </div>
@@ -419,6 +423,7 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
               </div>
             `).join('')}
           </div>
+          `}
         </div>
         <div>
           <!-- ID 충돌 방지를 위해 클래스 기반으로 접근하거나 고유 ID 부여 -->
@@ -839,44 +844,6 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
           </div>
         </div>
 
-        ${returnedCount > 0 ? `
-          <div style="background:rgba(255,255,255,0.03); padding:16px; border-radius:12px; margin-bottom:24px; border:1px solid rgba(255,255,255,0.05);">
-            <div style="font-size:0.85rem; font-weight:700; color:var(--text-muted); margin-bottom:10px; display:flex; align-items:center; gap:6px;">
-              🔍 시장 내 실제 경쟁 및 참고 영상 (${returnedCount}개)
-            </div>
-            <div style="display:flex; flex-direction:column; gap:6px; max-height:150px; overflow-y:auto; padding-right:8px;">
-              ${result.existingVideos.slice(0, 10).map(v => `
-                <div style="display:flex; justify-content:space-between; font-size:0.8rem; opacity:0.8;">
-                  <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-right:10px;">• ${v.title}</span>
-                  <span style="color:var(--accent); white-space:nowrap;">${(v.view_count || 0).toLocaleString()}회</span>
-                </div>
-              `).join('')}
-              ${returnedCount > 10 ? `<div style="text-align:center; font-size:0.75rem; color:var(--text-muted); margin-top:4px;">외 ${returnedCount - 10}개 더 있음</div>` : ''}
-            </div>
-          </div>
-        ` : ''}
-
-        ${result.existingVideos && result.existingVideos.length > 0 ? `
-        <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.1); padding:16px; border-radius:12px; margin-bottom:24px;">
-          <div style="font-size:0.9rem; font-weight:800; color:var(--text-secondary); margin-bottom:12px; display:flex; align-items:center; gap:8px;">
-            🔍 중복 분석 근거: 기존 인기 영상 (${result.existingVideos.length}개 중 상위)
-          </div>
-          <div style="display:flex; flex-direction:column; gap:8px;">
-            ${result.existingVideos.slice(0, 6).map(v => `
-              <div style="font-size:0.8rem; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.03);">
-                <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:70%;" title="${v.title}">
-                  • ${v.title}
-                </span>
-                <span style="font-size:0.75rem; color:var(--accent);">조회수 ${v.view_count.toLocaleString()}회</span>
-              </div>
-            `).join('')}
-          </div>
-          <div style="font-size:0.7rem; color:var(--text-muted); margin-top:8px; display:flex; justify-content:space-between;">
-            <span>* 이 영상들이 사용자가 기획하려는 소재와 5중으로 겹치는 '진짜 경쟁작'입니다.</span>
-            ${result.existingVideos.length > 6 ? `<span style="font-weight:700;">외 ${result.existingVideos.length - 6}개 더 있음</span>` : ''}
-          </div>
-        </div>
-        ` : ''}
         
         <div id="deep-suggestion-list" style="display:flex; flex-direction:column; gap:12px;">
           ${suggestions.map((s, idx) => `
