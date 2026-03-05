@@ -234,6 +234,33 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
   const el = targetEl || document.getElementById('gap-results');
   let filterMode = 'all'; // Local state for filtering
 
+  // Inject detail-dashboard styles once
+  if (!document.getElementById('detail-dashboard-style')) {
+    const ds = document.createElement('style');
+    ds.id = 'detail-dashboard-style';
+    ds.textContent = `
+      .detail-dashboard { padding:4px 0; }
+      .detail-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:8px; }
+      .detail-filter-btns { display:flex; gap:6px; flex-wrap:wrap; }
+      .detail-filter { padding:4px 12px; border-radius:20px; border:1px solid rgba(255,255,255,0.15); background:rgba(255,255,255,0.06); color:#ccc; font-size:0.75rem; cursor:pointer; transition:all 0.2s; }
+      .detail-filter.active { background:var(--accent,#ff6b6b); border-color:var(--accent,#ff6b6b); color:#fff; font-weight:700; }
+      .detail-ai-btn { padding:6px 14px; border-radius:20px; background:linear-gradient(90deg,#7b2ff7,#4f8ef7); border:none; color:#fff; font-size:0.75rem; font-weight:700; cursor:pointer; transition:transform 0.2s; }
+      .detail-ai-btn:hover { transform:translateY(-1px); }
+      .detail-group { background:rgba(255,255,255,0.02); border-radius:12px; padding:14px; margin-bottom:12px; }
+      .detail-group-title { font-size:0.85rem; font-weight:800; color:var(--accent,#ff6b6b); border-left:4px solid var(--accent,#ff6b6b); padding-left:10px; margin-bottom:10px; }
+      .detail-bar-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; transition:opacity 0.2s; }
+      .detail-bar-row.hidden { display:none; }
+      .detail-bar-label { width:80px; font-size:0.75rem; color:#ccc; text-align:right; flex-shrink:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .detail-bar-wrap { flex:1; background:rgba(255,255,255,0.08); border-radius:6px; height:24px; position:relative; overflow:hidden; }
+      .detail-bar { height:100%; border-radius:6px; transition:width 0.5s ease; }
+      .detail-bar.sat-high { background:linear-gradient(90deg,#e74c3c,#c0392b); }
+      .detail-bar.sat-mid { background:linear-gradient(90deg,#f39c12,#e67e22); }
+      .detail-bar.sat-low { background:linear-gradient(90deg,#27ae60,#2ecc71); }
+      .detail-bar-info { font-size:0.72rem; color:#aaa; flex-shrink:0; width:150px; text-align:left; white-space:nowrap; }
+    `;
+    document.head.appendChild(ds);
+  }
+
   // Inject niche-card styles once
   if (!document.getElementById('niche-card-style')) {
     const s = document.createElement('style');
@@ -349,7 +376,7 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
                  data-source-id="${item.sourceId}" data-person-id="${item.personId || 0}"
                  data-region-id="${item.regionId || 0}" data-count="${item.count}">
               <div class="niche-card-header">
-                <span class="niche-rank rank-${idx + 1}">${idx < 3 ? ['🥇','🥈','🥉'][idx] : `TOP ${idx + 1}`}</span>
+                <span class="niche-rank rank-${idx + 1}">${idx < 3 ? `${['🥇','🥈','🥉'][idx]} TOP ${idx + 1}` : `TOP ${idx + 1}`}</span>
                 <span class="niche-count">🔥 ${item.count}개</span>
               </div>
               <div class="niche-card-label">${item.label}</div>
@@ -370,11 +397,6 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
         <div class="chart-container">
           <div class="flex-between mb-16">
             <h4>📊 요약 분석</h4>
-            <div class="flex gap-8" id="gap-filter-btns">
-              <button class="btn ${filterMode === 'all' ? 'btn-primary active-tab' : 'btn-secondary'} btn-sm" data-filter="all">🔄 전체</button>
-              <button class="btn ${filterMode === 'yellow' ? 'btn-primary active-tab' : 'btn-secondary'} btn-sm" data-filter="yellow" style="color:var(--warning);">🟡 중간</button>
-              <button class="btn ${filterMode === 'red' ? 'btn-primary active-tab' : 'btn-secondary'} btn-sm" data-filter="red" style="color:var(--danger);">🔴 포화</button>
-            </div>
           </div>
           <div class="compact-view" style="display:flex; flex-direction:column; gap:30px;">
             ${rows.map(r => `
@@ -475,14 +497,6 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
       </div>
     `;
 
-    // Re-attach filter buttons events
-    el.querySelectorAll('#gap-filter-btns button').forEach(btn => {
-      btn.addEventListener('click', () => {
-        filterMode = btn.dataset.filter;
-        renderContent();
-      });
-    });
-
     // [드릴 다운 연동] 수퍼 니치 카드 클릭 시 하단 그리드 업데이트 함수
     const drillDownToDetail = async (eraId, eventId, sourceId, label) => {
       const compactView = el.querySelector('.compact-view');
@@ -511,57 +525,91 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
             </div>
           `;
         } else {
+          // Find max count across all groups for bar width scaling
+          const allCounts = detail.groups.flatMap(g => g.cells.map(c => c.count));
+          const maxDetailCount = Math.max(...allCounts, 1);
+
           compactView.innerHTML = `
-            <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
-              <button class="btn btn-secondary btn-xs" id="reset-grid-btn" style="padding:4px 10px; font-size:0.72rem;">↩ 요약 보기</button>
-            </div>
-            ${detail.groups.map(group => `
-              <div class="compact-row" style="background:rgba(255,255,255,0.02); padding:14px; border-radius:14px; margin-bottom:14px;">
-                <div class="row-label mb-10" style="font-weight:800; color:var(--accent); font-size:0.9rem; border-left:4px solid var(--accent); padding-left:10px;">
-                  ${group.groupName}
+            <div class="detail-dashboard">
+              <div class="detail-header">
+                <div class="detail-filter-btns">
+                  <button class="detail-filter active" data-detail-filter="all">전체</button>
+                  <button class="detail-filter" data-detail-filter="high">🔴 포화</button>
+                  <button class="detail-filter" data-detail-filter="mid">🟡 중간</button>
+                  <button class="detail-filter" data-detail-filter="low">🟢 여유</button>
                 </div>
-                <div class="cells-wrapper" style="display:flex; flex-wrap:wrap; gap:10px;">
-                  ${group.cells.map(c => `
-                    <div class="heatmap-cell level-${c.level} clickable-detail-cell"
-                      data-cat-id="${c.id}" data-count="${c.count}" data-label="${c.label}"
-                      data-theme-label="${label}"
-                      data-era-id="${eraId}" data-event-id="${eventId}" data-source-id="${sourceId}"
-                      title="${c.label}: 중복 영상 ${c.count}개"
-                      style="width:100px; height:80px; padding:8px 6px; border-radius:10px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; border:1px solid rgba(255,255,255,0.08); cursor:pointer; transition:all 0.2s; overflow:hidden; box-sizing:border-box; flex-shrink:0;">
-                      <span style="font-size:0.68rem; font-weight:700; text-align:center; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; line-height:1.2;">${c.label}</span>
-                      <span style="font-size:1.05rem; font-weight:900; line-height:1;">${c.count.toLocaleString()}🔥</span>
-                      <span style="font-size:0.55rem; opacity:0.5;">중복</span>
-                    </div>
-                  `).join('')}
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <button class="detail-ai-btn" id="detail-ai-recommend-btn">🤖 AI 차별화 주제 추천받기</button>
                 </div>
               </div>
-            `).join('')}
+              ${detail.groups.map(group => `
+                <div class="detail-group">
+                  <div class="detail-group-title">${group.groupName}</div>
+                  ${group.cells.map(c => {
+                    const satClass = c.level >= 4 ? 'sat-high' : c.level >= 3 ? 'sat-mid' : 'sat-low';
+                    const satFilter = c.level >= 4 ? 'high' : c.level >= 3 ? 'mid' : 'low';
+                    const satEmoji = c.level >= 4 ? '🔴' : c.level >= 3 ? '🟡' : '🟢';
+                    const barWidth = Math.round((c.count / maxDetailCount) * 100);
+                    return `
+                      <div class="detail-bar-row" data-sat="${satFilter}"
+                        data-cat-id="${c.id}" data-count="${c.count}" data-label="${c.label}"
+                        data-theme-label="${label}"
+                        data-era-id="${eraId}" data-event-id="${eventId}" data-source-id="${sourceId}"
+                        style="cursor:pointer;" title="${c.label}: 중복 영상 ${c.count}개">
+                        <div class="detail-bar-label" title="${c.label}">${c.label}</div>
+                        <div class="detail-bar-wrap">
+                          <div class="detail-bar ${satClass}" style="width:${barWidth}%;"></div>
+                        </div>
+                        <div class="detail-bar-info">${c.count.toLocaleString()}개 ${satEmoji} ${c.level >= 4 ? '포화' : c.level >= 3 ? '중간' : '여유'}</div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              `).join('')}
+            </div>
           `;
         }
 
-        // 요약 복귀 버튼
-        el.querySelector('#reset-grid-btn')?.addEventListener('click', () => renderContent());
+        // 필터 버튼
+        compactView.querySelectorAll('.detail-filter').forEach(btn => {
+          btn.addEventListener('click', () => {
+            compactView.querySelectorAll('.detail-filter').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const f = btn.dataset.detailFilter;
+            compactView.querySelectorAll('.detail-bar-row').forEach(row => {
+              if (f === 'all' || row.dataset.sat === f) {
+                row.classList.remove('hidden');
+              } else {
+                row.classList.add('hidden');
+              }
+            });
+          });
+        });
 
-        // 세부 셀 클릭 → AI 심층 분석
-        compactView.querySelectorAll('.clickable-detail-cell').forEach(cell => {
-          cell.addEventListener('click', async () => {
-            const catX = cell.dataset.label;
-            const catY = cell.dataset.themeLabel;
-            const count = parseInt(cell.dataset.count || '0', 10);
+        // AI 추천 버튼
+        el.querySelector('#detail-ai-recommend-btn')?.addEventListener('click', async () => {
+          const deepArea = el.querySelector('.deep-analysis-area-scoped');
+          if (!deepArea) { showToast('분석 영역을 찾을 수 없습니다.', 'error'); return; }
+          const meta = { eraId, eventId, sourceId, personId: '0', regionId: '0' };
+          showToast(`'${label}' 테마 AI 차별화 주제 추천을 시작합니다...`, 'info');
+          await performDeepAnalysis(label, label, '세부 카테고리', '시대/사건/소재', detail.totalVideos || 0, api, true, meta, deepArea);
+        });
+
+        // 세부 행 클릭 → AI 심층 분석
+        compactView.querySelectorAll('.detail-bar-row').forEach(row => {
+          row.addEventListener('click', async () => {
+            const catX = row.dataset.label;
+            const catY = row.dataset.themeLabel;
+            const count = parseInt(row.dataset.count || '0', 10);
             const meta = {
-              eraId: cell.dataset.eraId,
-              eventId: cell.dataset.eventId,
-              sourceId: cell.dataset.sourceId,
+              eraId: row.dataset.eraId,
+              eventId: row.dataset.eventId,
+              sourceId: row.dataset.sourceId,
               personId: '0',
               regionId: '0'
             };
             const deepArea = el.querySelector('.deep-analysis-area-scoped');
-            console.log('[DEBUG] Detail Cell Clicked:', { catX, catY, count, deepArea });
-            if (!deepArea) {
-              showToast('분석 영역을 찾을 수 없습니다. (ID conflict?)', 'error');
-              console.error('[ERROR] .deep-analysis-area-scoped not found in drill-down!');
-              return;
-            }
+            if (!deepArea) { showToast('분석 영역을 찾을 수 없습니다.', 'error'); return; }
             showToast(`'${catX}' 기획 분석을 시작합니다...`, 'info');
             await performDeepAnalysis(catX, catY, '세부 카테고리', '시대/사건/소재', count, api, true, meta, deepArea);
           });
