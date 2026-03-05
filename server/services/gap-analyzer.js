@@ -278,7 +278,7 @@ export function buildCombinedNicheRanking() {
       c1.id as eraId, c2.id as eventId, c3.id as sourceId,
       COUNT(DISTINCT v.id) as count
     FROM videos v
-    JOIN video_categories vc1 ON v.id = vc1.video_id JOIN categories c1 ON vc1.category_id = c1.id AND c1.group_name = '시대'
+    JOIN video_categories vc1 ON v.id = vc1.video_id JOIN categories c1 ON vc1.category_id = c1.id AND c1.group_name = '시대' AND (c1.name = '조선 전기' OR c1.name = '조선 후기')
     JOIN video_categories vc2 ON v.id = vc2.video_id JOIN categories c2 ON vc2.category_id = c2.id AND c2.group_name = '사건유형'
     JOIN video_categories vc3 ON v.id = vc3.video_id JOIN categories c3 ON vc3.category_id = c3.id AND c3.group_name = '소재출처'
     GROUP BY c1.id, c2.id, c3.id

@@ -234,6 +234,31 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
   const el = targetEl || document.getElementById('gap-results');
   let filterMode = 'all'; // Local state for filtering
 
+  // Inject niche-card styles once
+  if (!document.getElementById('niche-card-style')) {
+    const s = document.createElement('style');
+    s.id = 'niche-card-style';
+    s.textContent = `
+      .niche-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:12px; margin-top:16px; }
+      .niche-card { background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%); border:1px solid #2a2a4a; border-radius:12px; padding:16px; cursor:pointer; transition:transform 0.2s,border-color 0.2s; }
+      .niche-card:hover { transform:translateY(-2px); border-color:#ff6b6b; }
+      .niche-card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+      .niche-rank { font-size:14px; font-weight:700; color:#aaa; }
+      .niche-rank.rank-1 { color:#ffd700; font-size:18px; }
+      .niche-rank.rank-2 { color:#c0c0c0; font-size:16px; }
+      .niche-rank.rank-3 { color:#cd7f32; font-size:16px; }
+      .niche-count { font-size:14px; color:#ff6b6b; font-weight:600; }
+      .niche-card-label { font-size:15px; font-weight:600; color:#e0e0e0; margin-bottom:12px; line-height:1.4; }
+      .niche-bar-wrap { position:relative; background:#2a2a4a; border-radius:8px; height:22px; margin-bottom:10px; overflow:hidden; }
+      .niche-bar { height:100%; border-radius:8px; background:linear-gradient(90deg,#ff6b6b,#ee5a24); transition:width 0.5s ease; }
+      .niche-bar-text { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:11px; font-weight:600; color:#fff; }
+      .niche-card-tags { display:flex; gap:6px; flex-wrap:wrap; }
+      .niche-card-tags span { background:#2a2a4a; color:#aaa; font-size:11px; padding:3px 8px; border-radius:4px; }
+      .niche-card-tags span:empty { display:none; }
+    `;
+    document.head.appendChild(s);
+  }
+
   const getLevel = (count) => {
     if (count === 0) return 0;
     const ratio = data.maxCount > 0 ? count / data.maxCount : 0;
@@ -309,31 +334,34 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
       </div>
     ` : '';
 
+    const maxCount = (data.topCombined && data.topCombined.length > 0) ? data.topCombined[0].count : 1;
     const topCombinedHtml = (data.topCombined && data.topCombined.length > 0) ? `
       <div class="card mb-24" style="border:1px solid rgba(var(--accent-rgb), 0.2); background:rgba(var(--accent-rgb), 0.02);">
-        <h4 class="mb-16" style="display:flex; align-items:center; gap:8px;">
+        <h4 class="mb-8" style="display:flex; align-items:center; gap:8px;">
           🚀 <span style="color:var(--accent);">수퍼 니치(Super Niche)</span> : 가장 인기 있는 3중 복합 주제 TOP 10
         </h4>
-        <p class="mb-16" style="font-size:0.85rem; color:var(--text-secondary);">
-          시대, 사건, 소재 카테고리가 한꺼번에 겹치는 <b>가장 포화된(인기 있는)</b> 조합입니다. 
+        <p class="mb-8" style="font-size:0.85rem; color:var(--text-secondary);">
+          시대, 사건, 소재 카테고리가 한꺼번에 겹치는 <b>가장 포화된(인기 있는)</b> 조합입니다.
           이 안에서 틈새를 찾는 것이 가장 효과적입니다.
         </p>
-        <div class="combined-ranking-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap:12px;">
+        <div class="niche-grid">
           ${data.topCombined.slice(0, 10).map((item, idx) => `
-            <div class="ranking-item clickable-cell" 
+            <div class="niche-card"
                  data-full-label="${item.label}" data-y="[${item.era}] ${item.event}"
                  data-era-id="${item.eraId}" data-event-id="${item.eventId}"
-                 data-source-id="${item.sourceId}" data-person-id="${item.personId}"
-                 data-region-id="${item.regionId}"
-                 data-count="${item.count}"
-                 style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); padding:12px 16px; border-radius:10px; cursor:pointer; transition:all 0.2s; display:flex; justify-content:space-between; align-items:center;">
-              <div style="flex:1;">
-                <div style="font-size:0.7rem; color:var(--accent); font-weight:700; margin-bottom:4px;">TOP ${idx + 1}</div>
-                <div style="font-size:0.85rem; font-weight:600; line-height:1.4;">${item.label}</div>
+                 data-source-id="${item.sourceId}" data-person-id="${item.personId || 0}"
+                 data-region-id="${item.regionId || 0}" data-count="${item.count}">
+              <div class="niche-card-header">
+                <span class="niche-rank rank-${idx + 1}">${idx < 3 ? ['🥇','🥈','🥉'][idx] : `TOP ${idx + 1}`}</span>
+                <span class="niche-count">🔥 ${item.count}개</span>
               </div>
-              <div style="text-align:right; min-width:60px;">
-                <div style="font-size:0.9rem; font-weight:800; color:var(--danger);">🔥 ${item.count}</div>
-                <div style="font-size:0.65rem; color:var(--text-muted);">중복 영상</div>
+              <div class="niche-card-label">${item.label}</div>
+              <div class="niche-bar-wrap">
+                <div class="niche-bar" style="width:${Math.round(item.count / maxCount * 100)}%"></div>
+                <span class="niche-bar-text">포화도 ${Math.round(item.count / maxCount * 100)}%</span>
+              </div>
+              <div class="niche-card-tags">
+                ${item.details ? [item.details.source, item.details.person, item.details.region].filter(v => v && v !== '전체').map(v => `<span>${v}</span>`).join('') : ''}
               </div>
             </div>
           `).join('')}
@@ -551,8 +579,8 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
       }
     };
 
-    // [수퍼 니치 카드 전용] .ranking-item 클릭 → 드릴 다운
-    el.querySelectorAll('.ranking-item').forEach(card => {
+    // [수퍼 니치 카드 전용] .niche-card 클릭 → 드릴 다운
+    el.querySelectorAll('.niche-card').forEach(card => {
       card.addEventListener('click', async () => {
         const eraId = card.dataset.eraId;
         const eventId = card.dataset.eventId;
