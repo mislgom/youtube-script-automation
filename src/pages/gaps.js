@@ -243,18 +243,15 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
       .niche-card { background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%); border:1px solid #2a2a4a; border-radius:12px; padding:16px; cursor:pointer; transition:transform 0.2s,border-color 0.2s; }
       .niche-card:hover { transform:translateY(-2px); border-color:#ff6b6b; }
       .niche-card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
-      .niche-rank { font-size:14px; font-weight:700; color:#aaa; }
-      .niche-rank.rank-1 { color:#ffd700; font-size:18px; }
-      .niche-rank.rank-2 { color:#c0c0c0; font-size:16px; }
-      .niche-rank.rank-3 { color:#cd7f32; font-size:16px; }
-      .niche-count { font-size:14px; color:#ff6b6b; font-weight:600; }
-      .niche-card-label { font-size:15px; font-weight:600; color:#e0e0e0; margin-bottom:12px; line-height:1.4; }
+      .niche-rank { font-size:18px; font-weight:700; color:#aaa; }
+      .niche-rank.rank-1 { color:#ffd700; font-size:24px; }
+      .niche-rank.rank-2 { color:#c0c0c0; font-size:22px; }
+      .niche-rank.rank-3 { color:#cd7f32; font-size:22px; }
+      .niche-count { font-size:18px; color:#ff6b6b; font-weight:600; }
+      .niche-card-label { font-size:18px; font-weight:600; color:#e0e0e0; margin-bottom:12px; line-height:1.4; }
       .niche-bar-wrap { position:relative; background:#2a2a4a; border-radius:8px; height:22px; margin-bottom:10px; overflow:hidden; }
       .niche-bar { height:100%; border-radius:8px; background:linear-gradient(90deg,#ff6b6b,#ee5a24); transition:width 0.5s ease; }
-      .niche-bar-text { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:11px; font-weight:600; color:#fff; }
-      .niche-card-tags { display:flex; gap:6px; flex-wrap:wrap; }
-      .niche-card-tags span { background:#2a2a4a; color:#aaa; font-size:11px; padding:3px 8px; border-radius:4px; }
-      .niche-card-tags span:empty { display:none; }
+      .niche-bar-text { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:13px; font-weight:600; color:#fff; }
     `;
     document.head.appendChild(s);
   }
@@ -359,9 +356,6 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
               <div class="niche-bar-wrap">
                 <div class="niche-bar" style="width:${Math.round(item.count / maxCount * 100)}%"></div>
                 <span class="niche-bar-text">포화도 ${Math.round(item.count / maxCount * 100)}%</span>
-              </div>
-              <div class="niche-card-tags">
-                ${item.details ? [item.details.source, item.details.person, item.details.region].filter(v => v && v !== '전체').map(v => `<span>${v}</span>`).join('') : ''}
               </div>
             </div>
           `).join('')}
