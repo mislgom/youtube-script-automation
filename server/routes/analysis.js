@@ -425,6 +425,14 @@ router.get('/economy/realtime-v3', async (req, res) => {
         const { period = '7' } = req.query; // '3' or '7' days
         const days = parseInt(period);
 
+        // 캐시 확인 (1시간 TTL)
+        const cacheKey = `economy-realtime-v3-${period}`;
+        const cached = realtimeCache.get(cacheKey);
+        if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+            console.log('[EconomyV3] 캐시 사용 (남은:', Math.round((CACHE_TTL - (Date.now() - cached.timestamp)) / 60000), '분)');
+            return res.json(cached.data);
+        }
+
         // 1. Get economy channels
         const channels = queryAll("SELECT id, name FROM channels WHERE group_tag = '경제'");
 
@@ -491,33 +499,36 @@ router.get('/economy/realtime-v3', async (req, res) => {
 
         console.log(`[EconomyV3] 분석 대상 영상 총 ${hitVideos.length}개 확보 (등록 채널 기반)`);
 
-        // [고도화] 등록 채널 데이터에 더해 유튜브 실시간 트렌드 무조건 통합 분석
-        console.log('[EconomyV3] 유튜브 실시간 트렌드 통합 데이터 수집 시작');
-        fallbackMessage = "등록 채널과 유튜브 실시간 트렌드를 통합하여 분석 중입니다.";
-        const trendingKeywords = ['경제 전망', '미국 금리', '삼성전자 주가', '비트코인', '부동산', '테슬라', '엔비디아'];
+        // DB에 등록 채널이 없거나 히트 영상이 없을 때만 YouTube API 호출
+        if (hitVideos.length === 0) {
+            console.log('[EconomyV3] 히트 영상 없음 -> 유튜브 실시간 트렌드 보충 시작');
+            fallbackMessage = "등록된 경제 채널 히트 영상이 없어 실시간 트렌드 정보를 기반으로 분석합니다.";
+            const trendingKeywords = ['경제 전망', '비트코인', '부동산'];
 
-        // 검색 결과를 담을 세트 (중복 방지용)
-        const existingVideoIds = new Set(hitVideos.map(v => v.video_id));
-
-        for (const kw of trendingKeywords) {
-            try {
-                const searchRes = await searchVideos(kw, { period: 'week', maxResults: 5 });
-                for (const sv of searchRes) {
-                    if (!existingVideoIds.has(sv.id)) {
-                        existingVideoIds.add(sv.id);
-                        hitVideos.push({
-                            id: 'ext_' + Math.random().toString(36).substr(2, 9),
-                            video_id: sv.id,
-                            title: sv.title,
-                            view_count: sv.view_count,
-                            published_at: sv.published_at || new Date().toISOString(),
-                            channel_name: sv.channel_name || '실시간 트렌드'
-                        });
+            for (const kw of trendingKeywords) {
+                try {
+                    const searchRes = await searchVideos({ keyword: kw, period: 'week', maxResults: 5 });
+                    if (searchRes && searchRes.length > 0) {
+                        for (const video of searchRes) {
+                            if (!hitVideos.find(v => v.video_id === video.video_id)) {
+                                hitVideos.push({
+                                    id: 'ext_' + Math.random().toString(36).substr(2, 9),
+                                    video_id: video.video_id,
+                                    title: video.title,
+                                    view_count: video.view_count,
+                                    published_at: video.published_at || new Date().toISOString(),
+                                    channel_name: video.channel_name || '실시간 트렌드'
+                                });
+                            }
+                        }
                     }
+                } catch (err) {
+                    console.error(`[EconomyV3] ${kw} 검색 실패:`, err.message);
                 }
-            } catch (e) {
-                console.error(`[EconomyV3] ${kw} 검색 실패:`, e.message);
             }
+        } else {
+            console.log(`[EconomyV3] 등록 채널 히트 영상 ${hitVideos.length}개 확보 -> YouTube API 호출 생략`);
+            fallbackMessage = "등록 채널 데이터를 기반으로 분석합니다.";
         }
 
         finalTitles = hitVideos.map(v => v.title);
@@ -595,11 +606,13 @@ router.get('/economy/realtime-v3', async (req, res) => {
             };
         }).filter(item => item !== null).sort((a, b) => b.hot_score - a.hot_score);
 
-        res.json({
+        const responseData = {
             keywords: enrichedKeywords,
             message: fallbackMessage,
             error: aiErrorMessage
-        });
+        };
+        realtimeCache.set(cacheKey, { timestamp: Date.now(), data: responseData });
+        res.json(responseData);
     } catch (err) {
         console.error('[EconomyRealtimeV3] Error:', err.message);
         res.status(500).json({ error: err.message });
