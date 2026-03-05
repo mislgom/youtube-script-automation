@@ -677,7 +677,7 @@ router.post('/gaps/deep', async (req, res) => {
         }
 
         // AI 추천 생성
-        const suggestions = await deepSuggestTopics(catX, catY, groupX, groupY, existingVideos, isEconomy, dnaSummary, isYadam);
+        const suggestions = await deepSuggestTopics(catX, catY, groupX, groupY, existingVideos, isEconomy, dnaSummary, isYadam, meta);
 
         res.json({ suggestions, existingCount, dnaSummary, spikeCount, existingVideos });
     } catch (err) {

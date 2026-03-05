@@ -3,6 +3,7 @@ import { logToFile } from '../utils/logger.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { GoogleAuth } from 'google-auth-library';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logPath = path.join(__dirname, '../../debug.log');
@@ -14,6 +15,17 @@ function logError(msg) {
 
 let genaiModule = null;
 let aiClient = null;
+
+async function getVertexAccessToken() {
+    const keyFile = path.join(__dirname, 'youtube-namin-d9bf156bc77b.json');
+    const auth = new GoogleAuth({
+        keyFile,
+        scopes: ['https://www.googleapis.com/auth/cloud-platform']
+    });
+    const client = await auth.getClient();
+    const token = await client.getAccessToken();
+    return token.token;
+}
 
 async function getClient() {
     const row = queryOne("SELECT value FROM settings WHERE key = 'gemini_api_key'");
@@ -102,15 +114,19 @@ export async function callGemini(prompt, options = {}) {
                 return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
             }
 
-            // CASE 2: Vertex AI with Cloud API Key (AIza...) + Project ID
-            if (auth.type === 'api_key' && projectId) {
-                const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:streamGenerateContent?key=${auth.apiKey}`;
-                logToFile(`[AI Request] Vertex AI (API Key): ${modelName}, Project: ${projectId}`);
-
+            // CASE 2: Vertex AI with Service Account JSON → Bearer Token
+            if (projectId) {
                 try {
+                    const accessToken = await getVertexAccessToken();
+                    const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:streamGenerateContent`;
+                    logToFile(`[AI Request] Vertex AI (Service Account): ${modelName}, Project: ${projectId}`);
+
                     const res = await fetch(url, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${accessToken}`
+                        },
                         body: JSON.stringify({
                             contents: [{ role: 'user', parts: [{ text: prompt }] }],
                             generationConfig: {
@@ -122,7 +138,12 @@ export async function callGemini(prompt, options = {}) {
 
                     const data = await res.json();
                     if (res.ok) {
-                        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                        let text;
+                        if (Array.isArray(data)) {
+                            text = data.map(chunk => chunk.candidates?.[0]?.content?.parts?.[0]?.text || '').join('');
+                        } else {
+                            text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                        }
                         if (!text) {
                             logToFile(`[AI Warning] Vertex AI 응답성공했으나 결과가 비어있음: ${JSON.stringify(data)}`);
                             return '';
@@ -685,7 +706,7 @@ import { attachDNAContextToPrompt } from './prompt-addon.js';
  * @param {boolean} isEconomy - 경제 특화 모드 여부
  * @param {object} dnaSummary - [NEW] 추가된 떡상 DNA 통계 객체
  */
-export async function deepSuggestTopics(catX, catY, groupX, groupY, existingVideos = [], isEconomy = false, dnaSummary = null, isYadam = false) {
+export async function deepSuggestTopics(catX, catY, groupX, groupY, existingVideos = [], isEconomy = false, dnaSummary = null, isYadam = false, meta = null) {
     const existingCount = existingVideos.length;
     const demandLevel = existingCount >= 5 ? '폭발적인 고수요 영역 (검증된 인기 주제)'
         : existingCount >= 2 ? `안정적인 수요 영역 (경쟁 중)`
@@ -754,6 +775,18 @@ ${yadamBoldInstruction}
     // DNA 접목 (3단계 적용)
     if (dnaSummary) {
         prompt = attachDNAContextToPrompt(prompt, dnaSummary);
+    }
+
+    // 포화도 현황 삽입
+    if (meta?.saturationData && meta.saturationData.length > 0) {
+        const levelLabel = { 1: '매우 여유', 2: '여유', 3: '보통', 4: '포화', 5: '매우 포화' };
+        prompt += '\n\n[카테고리별 포화도 현황 - 포화된 조합은 피하고, 여유 있는 조합을 활용하여 차별화된 주제를 추천하세요]\n';
+        for (const group of meta.saturationData) {
+            const items = group.cells
+                .map(c => `${c.label} ${c.count}개(${levelLabel[c.level] || '보통'})`)
+                .join(', ');
+            prompt += `- ${group.groupName}: ${items}\n`;
+        }
     }
 
     let result;

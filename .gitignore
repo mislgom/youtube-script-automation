@@ -1,3 +1,4 @@
 node_modules/
 *.db
 debug.log
+server/youtube-namin-*.json

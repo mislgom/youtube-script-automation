@@ -591,6 +591,16 @@ function renderGapResults(data, groupX, groupY, api, targetEl) {
           const deepArea = el.querySelector('.deep-analysis-area-scoped');
           if (!deepArea) { showToast('분석 영역을 찾을 수 없습니다.', 'error'); return; }
           const meta = { eraId, eventId, sourceId, personId: '0', regionId: '0' };
+          if (detail.groups && detail.groups.length > 0) {
+            meta.saturationData = detail.groups.map(g => ({
+              groupName: g.groupName,
+              cells: g.cells.map(c => ({
+                label: c.label,
+                count: c.count,
+                level: c.level
+              }))
+            }));
+          }
           showToast(`'${label}' 테마 AI 차별화 주제 추천을 시작합니다...`, 'info');
           await performDeepAnalysis(label, label, '세부 카테고리', '시대/사건/소재', detail.totalVideos || 0, api, true, meta, deepArea);
         });
