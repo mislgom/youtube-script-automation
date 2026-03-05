@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { queryAll, queryOne, runSQL } from '../db.js';
 import { compareTexts, getTopKeywords } from '../services/similarity.js';
 import { compareWithGemini, suggestTopics, analyzeComments, generateBenchmarkReport, generateUniqueSkeleton, deepSuggestTopics, editScript } from '../services/gemini-service.js';
-import { buildGapMatrix, buildYadamGapMatrix, categorizeVideoByKeywords, getEconomyTrendAnalysis, getCategoryDistribution, getCategoryGroups, getTrends, getTrendsByCategory, getNicheDetailGrid, ensureYadamCategories } from '../services/gap-analyzer.js';
-import { fetchComments, searchVideos } from '../services/youtube-fetcher.js';
+import { buildGapMatrix, buildYadamGapMatrix, getEconomyTrendAnalysis, getCategoryDistribution, getCategoryGroups, getTrends, getTrendsByCategory, getNicheDetailGrid } from '../services/gap-analyzer.js';
+import { fetchComments } from '../services/youtube-fetcher.js';
 import { pickSpikeVideos } from '../services/spike-selector.js';
 import { extractSpikeDNA, formatDNAForPrompt } from '../services/dna-extractor.js';
 import { extractAdvancedDNA } from '../services/advanced-dna-extractor.js';
@@ -168,10 +168,8 @@ router.get('/gaps/yadam', async (req, res) => {
         const channelCount = (queryOne('SELECT COUNT(*) as cnt FROM channels') || { cnt: 0 }).cnt;
         const localVideoCount = (queryOne('SELECT COUNT(*) as cnt FROM videos') || { cnt: 0 }).cnt;
         const geminiKey = queryOne("SELECT value FROM settings WHERE key = 'gemini_api_key'")?.value;
-        const youtubeKey = queryOne("SELECT value FROM settings WHERE key = 'youtube_api_key'")?.value;
 
         // 1. Key Check & Mode Selection
-        const hasYoutubeKey = youtubeKey && youtubeKey.trim() !== '';
         const hasGeminiKey = geminiKey && geminiKey.trim() !== '';
         const isVertex = geminiKey?.startsWith('AQ');
         const googleProjectId = queryOne("SELECT value FROM settings WHERE key = 'google_project_id'")?.value;
@@ -193,32 +191,8 @@ router.get('/gaps/yadam', async (req, res) => {
             });
         }
 
-        // 2. Fetch real-time "hot" yadam videos (if YouTube key exists)
+        // DB에 등록된 채널의 수집 영상만으로 분석 (YouTube API 실시간 검색 제거됨)
         let externalVideos = [];
-        if (hasYoutubeKey) {
-            try {
-                logToFile('[YadamGaps] 유튜브 실시간 검색 시작 (키워드: 야담)');
-                const searchResults = await searchVideos({
-                    keyword: '야담',
-                    period: 'all',
-                    order: 'relevance',
-                    minSubscribers: 0,
-                    maxResults: 50
-                });
-
-                const filteredExt = (searchResults || []).filter(v => v.subscriber_count <= 100000);
-                const finalExt = filteredExt.length >= 10 ? filteredExt : (searchResults || []).slice(0, 30);
-
-                const allCats = queryAll('SELECT * FROM categories WHERE group_name IN ("사건유형", "시대", "소재출처", "인물유형", "지역")');
-                externalVideos = finalExt.map(v => ({
-                    ...v,
-                    matchedCategoryIds: categorizeVideoByKeywords(v, allCats)
-                }));
-                logToFile(`[YadamGaps] 실시간 외부 데이터 확보 성공: ${externalVideos.length}개`);
-            } catch (e) {
-                logToFile(`[YadamGaps] ⚠ 유튜브 수집 실패 (로컬 데이터로 전환): ${e.message}`);
-            }
-        }
 
         // 2-1. Fetch Local Videos for Hybrid Merge
         const localVideos = queryAll(`
@@ -322,102 +296,6 @@ router.get('/gaps/economy', async (req, res) => {
 const realtimeCache = new Map();
 const CACHE_TTL = 60 * 60 * 1000; // 1시간
 
-const ECONOMY_ISSUE_MAP = {
-    '금리 / 금융 환경': [
-        { name: '기준금리', keyword: '기준금리 경제' },
-        { name: '대출금리', keyword: '대출금리 주담대' },
-        { name: '환율', keyword: '환율 원달러' },
-    ],
-    '부동산 / 주거': [
-        { name: '아파트 시세', keyword: '아파트 시세 집값' },
-        { name: '담보대출', keyword: '주택담보대출 LTV' },
-        { name: '전세', keyword: '전세 전세사기' },
-    ],
-    '경제 종합': [
-        { name: 'GDP / 물가', keyword: 'GDP 물가 경제성장' },
-        { name: '소비 / 내수', keyword: '소비심리 내수경제' },
-        { name: '수출입', keyword: '수출 무역수지 경상수지' },
-    ],
-    '글로벌 경제 / 국제 이슈': [
-        { name: '미국 경제', keyword: '미국 경제 연준 금리' },
-        { name: '관세 / 무역전쟁', keyword: '관세 무역전쟁 트럼프' },
-        { name: '원자재', keyword: '유가 원유 금값 원자재' },
-    ],
-    '주식 / 투자 시장': [
-        { name: '코스피', keyword: '코스피 주식 증시' },
-        { name: '나스닥', keyword: '나스닥 미국증시' },
-        { name: 'ETF', keyword: 'ETF 투자 리츠' },
-    ],
-    '코인 / 디지털 자산': [
-        { name: '비트코인', keyword: '비트코인 BTC 암호화폐' },
-        { name: '이더리움', keyword: '이더리움 ETH' },
-        { name: '알트코인', keyword: '알트코인 솔라나 리플' },
-    ],
-    '생활경제 / 물가': [
-        { name: '식품 물가', keyword: '식품 물가 먹거리 밥값' },
-        { name: '에너지', keyword: '전기요금 가스요금 에너지' },
-        { name: '교통비', keyword: '휘발유 기름값 교통비' },
-    ],
-    '정부 정책 / 세금': [
-        { name: '세금', keyword: '세금 종부세 세제개편' },
-        { name: '복지', keyword: '복지 지원금 보조금' },
-        { name: '규제', keyword: '규제완화 규제개혁' },
-    ],
-    '노후 / 연금 / 자산관리': [
-        { name: '국민연금', keyword: '국민연금 연금개혁' },
-        { name: '퇴직연금', keyword: '퇴직연금 IRP 연금저축' },
-        { name: '노후', keyword: '노후 은퇴 자산관리' },
-    ],
-    '개인 재테크 / 돈 관리': [
-        { name: '재테크', keyword: '재테크 투자 절약' },
-        { name: '신용 / 대출', keyword: '신용대출 신용점수' },
-        { name: '보험', keyword: '보험 실손보험 생명보험' },
-    ],
-    '🇺🇸 미국 경제 인물': [
-        { name: '제롬 파월', keyword: '파월 연준 금리 FOMC' },
-        { name: '일론 머스크', keyword: '일론 머스크 테슬라 DOGE' },
-        { name: '트럼프', keyword: '트럼프 관세 경제정책' },
-        { name: '젠슨 황', keyword: '젠슨 황 엔비디아 AI 반도체' },
-        { name: '워런 버핏', keyword: '워런 버핏 투자 포트폴리오' },
-        { name: '재닛 옐런', keyword: '옐런 미국 재무 국채' },
-        { name: '팀 쿡', keyword: '팀 쿡 애플 실적' },
-        { name: '사티아 나델라', keyword: '나델라 마이크로소프트 AI' },
-        { name: '마크 저커버그', keyword: '저커버그 메타 AI' },
-        { name: '샘 올트먼', keyword: '샘 올트먼 OpenAI ChatGPT' },
-    ],
-    '🇰🇷 한국 경제 인물': [
-        { name: '이재명', keyword: '이재명 경제정책 부동산' },
-        { name: '이창용', keyword: '이창용 한은 기준금리' },
-        { name: '최상목', keyword: '최상목 기재부 경제정책' },
-        { name: '이재용', keyword: '이재용 삼성전자 반도체' },
-        { name: '정의선', keyword: '정의선 현대자동차 전기차' },
-        { name: '신동빈', keyword: '신동빈 롯데 유통' },
-        { name: '최태원', keyword: '최태원 SK 하이닉스 AI' },
-        { name: '구광모', keyword: '구광모 LG 배터리' },
-        { name: '홍춘욱', keyword: '홍춘욱 경제 전망 투자' },
-        { name: '오건영', keyword: '오건영 경제 금리 전망' },
-    ],
-    '🇨🇳 중국 경제 인물': [
-        { name: '시진핑', keyword: '시진핑 중국 경제 정책' },
-        { name: '리창', keyword: '리창 중국 총리 경제' },
-        { name: '인민은행', keyword: '중국 인민은행 금리 위안화' },
-        { name: '잭 마', keyword: '잭 마 알리바바 중국 빅테크' },
-        { name: 'BYD 왕촨푸', keyword: 'BYD 전기차 비야디' },
-        { name: '레이쥔', keyword: '레이쥔 샤오미 전기차' },
-        { name: '화웨이', keyword: '화웨이 반도체 중국' },
-    ],
-    '🇯🇵 일본 경제 인물': [
-        { name: '이시바 총리', keyword: '일본 총리 경제 엔화' },
-        { name: '일본은행', keyword: '일본은행 금리 엔화 환율' },
-        { name: '손정의', keyword: '손정의 소프트뱅크 AI 투자' },
-        { name: '도요타', keyword: '도요타 자동차 일본' },
-    ],
-    '🌏 신흥국 경제 인물': [
-        { name: '모디 (인도)', keyword: '모디 인도 경제 성장' },
-        { name: '인도네시아', keyword: '인도네시아 경제 니켈' },
-        { name: 'OPEC / 사우디', keyword: '사우디 원유 OPEC 감산' },
-    ],
-};
 
 // v3: GET /api/analysis/economy/realtime-v3 — Extract keywords from hit videos of registered channels
 router.get('/economy/realtime-v3', async (req, res) => {
@@ -499,37 +377,8 @@ router.get('/economy/realtime-v3', async (req, res) => {
 
         console.log(`[EconomyV3] 분석 대상 영상 총 ${hitVideos.length}개 확보 (등록 채널 기반)`);
 
-        // DB에 등록 채널이 없거나 히트 영상이 없을 때만 YouTube API 호출
-        if (hitVideos.length === 0) {
-            console.log('[EconomyV3] 히트 영상 없음 -> 유튜브 실시간 트렌드 보충 시작');
-            fallbackMessage = "등록된 경제 채널 히트 영상이 없어 실시간 트렌드 정보를 기반으로 분석합니다.";
-            const trendingKeywords = ['경제 전망', '비트코인', '부동산'];
-
-            for (const kw of trendingKeywords) {
-                try {
-                    const searchRes = await searchVideos({ keyword: kw, period: 'week', maxResults: 5 });
-                    if (searchRes && searchRes.length > 0) {
-                        for (const video of searchRes) {
-                            if (!hitVideos.find(v => v.video_id === video.video_id)) {
-                                hitVideos.push({
-                                    id: 'ext_' + Math.random().toString(36).substr(2, 9),
-                                    video_id: video.video_id,
-                                    title: video.title,
-                                    view_count: video.view_count,
-                                    published_at: video.published_at || new Date().toISOString(),
-                                    channel_name: video.channel_name || '실시간 트렌드'
-                                });
-                            }
-                        }
-                    }
-                } catch (err) {
-                    console.error(`[EconomyV3] ${kw} 검색 실패:`, err.message);
-                }
-            }
-        } else {
-            console.log(`[EconomyV3] 등록 채널 히트 영상 ${hitVideos.length}개 확보 -> YouTube API 호출 생략`);
-            fallbackMessage = "등록 채널 데이터를 기반으로 분석합니다.";
-        }
+        // DB에 등록된 채널의 수집 영상만으로 분석 (YouTube API 실시간 검색 제거됨)
+        fallbackMessage = hitVideos.length > 0 ? "등록 채널 데이터를 기반으로 분석합니다." : "등록된 경제 채널의 수집 영상이 없습니다. 채널을 등록하고 영상을 수집해주세요.";
 
         finalTitles = hitVideos.map(v => v.title);
 
@@ -654,87 +503,8 @@ router.get('/gaps/economy-realtime', async (req, res) => {
             return res.json(cached.data);
         }
 
-        console.log('[EconomyRealtime] YouTube 실시간 검색 시작...');
-        const mainResults = [];
-
-        for (const [mainCatName, subIssues] of Object.entries(ECONOMY_ISSUE_MAP)) {
-            const subResults = [];
-
-            for (const issue of subIssues) {
-                try {
-                    const videos = await searchVideos(issue.keyword, {
-                        period: 'week',
-                        maxResults: 10,
-                        order: 'viewCount'
-                    });
-
-                    if (videos.length === 0) {
-                        subResults.push({ name: issue.name, score: 10, count: 0, avgViews: 0, maxViralScore: 0, topChannel: '-', color: '#4b5563' });
-                        continue;
-                    }
-
-                    const totalViews = videos.reduce((sum, v) => sum + v.view_count, 0);
-                    const avgViews = Math.round(totalViews / videos.length);
-                    const maxViral = Math.max(...videos.map(v => v.viral_score || 0));
-                    const avgEngagement = videos.reduce((sum, v) => sum + (v.engagement_rate || 0), 0) / videos.length;
-                    const topVideo = videos[0];
-
-                    const viewScore = Math.min(100, (avgViews / 5000) * 30 + 20);
-                    const countScore = Math.min(100, videos.length * 10);
-                    const viralScoreNorm = Math.min(100, (maxViral / 500) * 80 + 10);
-                    const engagementScore = Math.min(100, avgEngagement * 10 + 10);
-
-                    const finalScore = Math.round(
-                        viewScore * 0.40 + countScore * 0.30 + viralScoreNorm * 0.20 + engagementScore * 0.10
-                    );
-
-                    let color = '#4b5563';
-                    if (finalScore >= 75) color = '#ef4444';
-                    else if (finalScore >= 55) color = '#f97316';
-                    else if (finalScore >= 35) color = '#eab308';
-                    else if (finalScore >= 15) color = '#22c55e';
-
-                    subResults.push({
-                        name: issue.name, score: finalScore, count: videos.length,
-                        avgViews, maxViralScore: maxViral,
-                        topChannel: topVideo.channel_name || '-',
-                        topChannelSubs: topVideo.subscriber_count || 0,
-                        topVideoTitle: topVideo.title || '-',
-                        topVideoViews: topVideo.view_count || 0,
-                        engagement: Math.round(avgEngagement * 100) / 100,
-                        color
-                    });
-                } catch (e) {
-                    console.error(`[EconomyRealtime] "${issue.name}" 검색 실패:`, e.message);
-                    subResults.push({ name: issue.name, score: 15, count: 0, avgViews: 0, maxViralScore: 0, topChannel: '-', color: '#4b5563' });
-                }
-            }
-
-            subResults.sort((a, b) => b.score - a.score);
-            const mainScore = subResults.length > 0
-                ? Math.round(subResults.reduce((sum, s) => sum + s.score, 0) / subResults.length)
-                : 20;
-
-            mainResults.push({
-                name: mainCatName, group: '경제(메인)',
-                finalScore: mainScore, freshScore: mainScore, trendScore: mainScore,
-                count: subResults.reduce((sum, s) => sum + s.count, 0),
-                subIssues: subResults
-            });
-        }
-
-        mainResults.sort((a, b) => b.finalScore - a.finalScore);
-
-        const responseData = {
-            period: 7, categories: mainResults, mainCategories: mainResults,
-            topRecommendations: mainResults.slice(0, 5),
-            dataSource: 'youtube_realtime', cachedAt: new Date().toISOString()
-        };
-
-        realtimeCache.set(cacheKey, { timestamp: Date.now(), data: responseData });
-        console.log(`[EconomyRealtime] 분석 완료: ${mainResults.length}개 카테고리`);
-
-        res.json(responseData);
+        // 구형 경제 분석 — YouTube API 실시간 검색 제거됨
+        res.json({ period: 7, categories: [], mainCategories: [], topRecommendations: [], dataSource: 'removed', cachedAt: new Date().toISOString() });
     } catch (err) {
         console.error('[EconomyRealtime] 오류:', err.message);
         res.status(500).json({ error: err.message });
