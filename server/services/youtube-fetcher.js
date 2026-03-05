@@ -75,7 +75,7 @@ export async function resolveChannel(input) {
 }
 
 // Fetch all videos from a channel's uploads playlist
-export async function fetchChannelVideos(channelId, maxResults = 500, afterDate = null) {
+export async function fetchChannelVideos(channelId, maxResults = 5000, afterDate = null) {
     const chData = await apiFetch('channels', { part: 'contentDetails', id: channelId });
     if (!chData?.items?.length) throw new Error('채널 정보를 가져올 수 없습니다.');
     const uploadsPlaylistId = chData.items[0].contentDetails.relatedPlaylists.uploads;

@@ -51,7 +51,7 @@ router.get('/comments/:videoId', async (req, res) => {
 // POST /api/youtube/fetch/:channelId — start fetching videos for a channel
 router.post('/fetch/:channelId', async (req, res) => {
     const channelDbId = req.params.channelId;
-    const { maxResults = 500 } = req.body;
+    const { maxResults = 5000 } = req.body;
 
     try {
         const channel = queryOne('SELECT * FROM channels WHERE id = ?', [channelDbId]);
