@@ -65,6 +65,8 @@ export const api = {
     getEconomyRealtime: () => request('/analysis/gaps/economy-realtime'),
     getMultiGaps: (selectedCategoryIds) => request('/analysis/gaps/multi', { method: 'POST', body: { selectedCategoryIds } }),
     deepGapAnalysis: (data) => request('/analysis/gaps/deep', { method: 'POST', body: data }),
+    getSubCategoryProgress: () => request('/analysis/sub-category-progress'),
+    classifySubCategories: (body = {}) => request('/analysis/classify-sub-categories', { method: 'POST', body }),
     generateScriptPlan: (data) => request('/analysis/gaps/script-plan', { method: 'POST', body: data }),
     generateUniqueSkeleton: (keyword, requirements) => request('/analysis/unique-skeleton', { method: 'POST', body: { keyword, requirements } }),
     editScript: (content, instructions, signal) => request('/analysis/scripts/edit', { method: 'POST', body: { content, instructions }, signal }),

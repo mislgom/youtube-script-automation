@@ -160,6 +160,21 @@ export async function initDB() {
   // v7: Add economy_metadata for impact and age interest scores
   try { db.run('ALTER TABLE videos ADD COLUMN economy_metadata TEXT DEFAULT "{}"'); } catch (e) { }
 
+  // v8: Sub-categories for yadam deep classification
+  db.run(`CREATE TABLE IF NOT EXISTS sub_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_category_name TEXT NOT NULL,
+    name TEXT NOT NULL,
+    UNIQUE(parent_category_name, name)
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS video_sub_categories (
+    video_id TEXT NOT NULL,
+    sub_category_id INTEGER NOT NULL,
+    PRIMARY KEY(video_id, sub_category_id),
+    FOREIGN KEY(sub_category_id) REFERENCES sub_categories(id)
+  )`);
+
   // Insert default settings
   const stmtSettings = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
   const defaults = [
@@ -175,6 +190,26 @@ export async function initDB() {
     stmtSettings.run([k, v]);
   }
   stmtSettings.free();
+
+  // v8: Insert initial sub_categories data
+  const subCatDefaults = [
+    ['풍속/일상', ['혼인/결혼','과거시험/출세','효도/가족','탐욕/재물','꾀/지혜','남녀관계','관아/송사','신분/계급','음식/풍습','미신/점술']],
+    ['복수극',    ['원귀복수','가문복수','배신복수','억울한누명','첩/처복수','노비복수','관리응징','도적복수']],
+    ['로맨스',    ['신분초월사랑','이별/재회','기생사랑','금지된사랑','혼인약속','환생사랑','삼각관계','첫사랑']],
+    ['괴담/미스터리', ['귀신출몰','저주/주술','흉가','빙의','괴물/요괴','예언/징조','사후세계','기이한현상']],
+    ['살인/범죄', ['독살','강도/약탈','암살','연쇄살인','위조/사칭','납치','은폐/증거인멸','관리부패']],
+    ['전쟁',      ['임진왜란','병자호란','전장영웅','포로/피난','첩보/밀정','의병','항복/배신','전후복구']],
+    ['사기',      ['사칭/신분위조','매매사기','혼인사기','과거부정','위조문서','도박사기','점술사기','관직매매']],
+    ['동물',      ['은혜갚는동물','동물변신','동물과교감','괴이한동물','동물징조','동물복수']],
+    ['기행',      ['명산유람','이국체험','기인기사','표류/漂流']],
+  ];
+  const stmtSubCat = db.prepare('INSERT OR IGNORE INTO sub_categories (parent_category_name, name) VALUES (?, ?)');
+  for (const [parent, names] of subCatDefaults) {
+    for (const name of names) {
+      stmtSubCat.run([parent, name]);
+    }
+  }
+  stmtSubCat.free();
 
   saveDB();
   console.log('✅ Database initialized');

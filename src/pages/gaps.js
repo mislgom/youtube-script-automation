@@ -60,6 +60,18 @@ export async function renderGaps(container, { api }) {
       </div>
     </div>
 
+    <!-- 세부 카테고리 AI 분류 카드 -->
+    <div class="card mb-24" id="sub-classify-card" style="border:1px solid rgba(255,255,255,0.08);">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:700; font-size:0.95rem; color:var(--text-primary); margin-bottom:4px;">🏷️ 세부 카테고리 AI 자동 분류</div>
+          <div style="font-size:0.8rem; color:var(--text-muted);" id="sub-classify-progress-text">진행률 조회 중...</div>
+        </div>
+        <button class="btn btn-secondary" id="sub-classify-btn" style="white-space:nowrap; font-size:0.85rem;">▶ 분류 실행</button>
+      </div>
+      <div id="sub-classify-status" style="margin-top:10px; font-size:0.8rem; color:var(--accent); display:none;"></div>
+    </div>
+
     <!-- 경제 분석 중간 단계 카드 제거됨 (자동 활성화) -->
 
     <div id="gap-results">
@@ -223,6 +235,49 @@ export async function renderGaps(container, { api }) {
       return;
     }
     runCustomAnalysis(gx, gy);
+  });
+
+  // 세부 카테고리 분류 버튼
+  const subClassifyBtn = document.getElementById('sub-classify-btn');
+  const subClassifyStatus = document.getElementById('sub-classify-status');
+  const subClassifyProgressText = document.getElementById('sub-classify-progress-text');
+
+  const refreshSubCategoryProgress = async () => {
+    try {
+      const prog = await api.getSubCategoryProgress();
+      const pct = prog.total > 0 ? Math.round(prog.classified / prog.total * 100) : 0;
+      subClassifyProgressText.textContent = `전체 ${prog.total}개 영상 중 ${prog.classified}개 분류 완료 (${pct}%) · 미분류 ${prog.unclassified}개`;
+    } catch (e) {
+      subClassifyProgressText.textContent = '진행률 조회 실패';
+    }
+  };
+
+  refreshSubCategoryProgress();
+
+  subClassifyBtn?.addEventListener('click', async () => {
+    subClassifyBtn.disabled = true;
+    subClassifyBtn.textContent = '⏳ 분류 중...';
+    subClassifyStatus.style.display = 'block';
+    subClassifyStatus.textContent = 'AI가 세부 카테고리를 분류하고 있습니다... (배치당 약 10~30초 소요)';
+
+    let totalProcessed = 0;
+    try {
+      while (true) {
+        const result = await api.classifySubCategories({ limit: 100 });
+        totalProcessed += result.processed || 0;
+        subClassifyStatus.textContent = `누적 ${totalProcessed}개 분류 완료 중...`;
+        await refreshSubCategoryProgress();
+        if (!result.processed || result.processed === 0) break;
+      }
+      subClassifyStatus.textContent = `✅ 분류 완료! 총 ${totalProcessed}개 처리`;
+      showToast(`세부 카테고리 분류 완료 (${totalProcessed}개)`, 'success');
+    } catch (err) {
+      subClassifyStatus.textContent = `❌ 오류: ${err.message}`;
+      showToast('분류 실패: ' + err.message, 'error');
+    } finally {
+      subClassifyBtn.disabled = false;
+      subClassifyBtn.textContent = '▶ 분류 실행';
+    }
   });
 
   // Final restoration and boot
@@ -610,23 +665,25 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
           await performDeepAnalysis(label, label, '세부 카테고리', '시대/사건/소재', detail.totalVideos || 0, api, true, meta, deepArea);
         });
 
-        // 세부 행 클릭 → AI 심층 분석
+        // 세부 행 클릭 → 2단계 드릴다운 (세부 카테고리 선택 UI)
         compactView.querySelectorAll('.detail-bar-row').forEach(row => {
           row.addEventListener('click', async () => {
             const catX = row.dataset.label;
             const catY = row.dataset.themeLabel;
             const count = parseInt(row.dataset.count || '0', 10);
-            const meta = {
-              eraId: row.dataset.eraId,
-              eventId: row.dataset.eventId,
-              sourceId: row.dataset.sourceId,
-              personId: '0',
-              regionId: '0'
-            };
+            const rowEraId = row.dataset.eraId;
+            const rowEventId = row.dataset.eventId;
+            const rowSourceId = row.dataset.sourceId;
+            const meta = { eraId: rowEraId, eventId: rowEventId, sourceId: rowSourceId, personId: '0', regionId: '0' };
             const deepArea = el.querySelector('.deep-analysis-area-scoped');
             if (!deepArea) { showToast('분석 영역을 찾을 수 없습니다.', 'error'); return; }
-            showToast(`'${catX}' 기획 분석을 시작합니다...`, 'info');
-            await performDeepAnalysis(catX, catY, '세부 카테고리', '시대/사건/소재', count, api, true, meta, deepArea);
+            showToast(`'${catX}' 세부 카테고리 조회 중...`, 'info');
+            try {
+              const subDetail = await api.getYadamDetailGrid({ eraId: rowEraId, eventId: rowEventId, sourceId: rowSourceId });
+              renderSubCategoryCards(deepArea, subDetail, catX, catY, count, meta, api);
+            } catch (err) {
+              showToast('세부 카테고리 조회 실패: ' + err.message, 'error');
+            }
           });
         });
 
@@ -680,6 +737,79 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
   renderContent();
 }
 
+
+function renderSubCategoryCards(deepArea, detail, catX, catY, count, meta, api) {
+  const levelLabel = { 1: '매우 여유', 2: '여유', 3: '중간', 4: '포화', 5: '매우 포화' };
+  const levelColor = { 1: '#22c55e', 2: '#4ade80', 3: '#eab308', 4: '#f97316', 5: '#ef4444' };
+
+  let html = `
+    <div class="chart-container mb-24 animation-fade-in" style="border:2px solid var(--accent); background:var(--card-bg); border-radius:16px; padding:24px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h4 style="margin:0; color:var(--accent); font-size:0.95rem;">
+          📂 ${catX} (${count}개) — 세부 카테고리 선택
+        </h4>
+        <button class="btn btn-secondary btn-sm" onclick="this.closest('.chart-container').remove()">✕ 닫기</button>
+      </div>
+      <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom:16px;">
+        아래 세부 카테고리를 클릭하면 해당 조합으로 AI 주제 추천이 시작됩니다.
+      </p>
+  `;
+
+  for (const group of (detail.groups || [])) {
+    html += `<div style="margin-bottom:16px;">
+      <div style="font-weight:700; color:var(--text-secondary); font-size:0.85rem; margin-bottom:8px; border-left:3px solid var(--accent); padding-left:8px;">
+        ${group.groupName}
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px;">`;
+
+    for (const cell of group.cells) {
+      const color = levelColor[cell.level] || '#eab308';
+      const lbl = levelLabel[cell.level] || '중간';
+      html += `
+        <div class="sub-category-card"
+             data-label="${cell.label}"
+             data-group="${group.groupName}"
+             data-count="${cell.count}"
+             data-level="${cell.level}"
+             style="background:rgba(255,255,255,0.06); border:1px solid ${color}40; border-radius:12px; padding:10px 16px; cursor:pointer; transition:all 0.2s; min-width:120px;"
+             onmouseover="this.style.background='rgba(255,255,255,0.12)'; this.style.borderColor='${color}';"
+             onmouseout="this.style.background='rgba(255,255,255,0.06)'; this.style.borderColor='${color}40';">
+          <div style="font-size:0.85rem; font-weight:600; color:var(--text-primary); margin-bottom:4px;">${cell.label}</div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span style="font-size:0.75rem; color:var(--text-muted);">${cell.count}개</span>
+            <span style="font-size:0.7rem; color:${color}; font-weight:600;">● ${lbl}</span>
+          </div>
+        </div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  if (!detail.groups || detail.groups.length === 0) {
+    html += `<p style="color:var(--text-muted); font-size:0.85rem;">세부 카테고리 데이터가 없습니다.</p>`;
+  }
+
+  html += `</div>`;
+  deepArea.innerHTML = html;
+
+  deepArea.querySelectorAll('.sub-category-card').forEach(card => {
+    card.addEventListener('click', async () => {
+      const subLabel = card.dataset.label;
+      const subCount = parseInt(card.dataset.count || '0', 10);
+      const enrichedMeta = {
+        ...meta,
+        saturationData: (detail.groups || []).map(g => ({
+          groupName: g.groupName,
+          cells: g.cells.map(c => ({ label: c.label, count: c.count, level: c.level }))
+        }))
+      };
+      await performDeepAnalysis(
+        subLabel, catY + ' × ' + subLabel,
+        '세부 카테고리', '시대/사건/소재',
+        subCount, api, true, enrichedMeta, deepArea
+      );
+    });
+  });
+}
 
 async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, api, isYadam = false, meta = null, targetArea = null) {
   const area = targetArea || document.getElementById('deep-analysis-area');
@@ -810,38 +940,30 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
 
     const html = `
       <div class="chart-container mb-24 animation-fade-in" style="border: 2px solid var(--accent); background: var(--card-bg);">
-        <div class="flex-between mb-20">
-          <div>
-            <h4 style="margin:0 0 6px 0; color:var(--accent); font-size:1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px;">
+          <div style="flex:1;">
+            <h4 style="margin:0 0 6px 0; color:var(--accent); font-size:0.9rem; line-height:1.4;">
               🚀 [${catY} × ${catX}] 시장 분석 & 떡상 전략 리포트
             </h4>
-            <div class="flex gap-8" style="flex-wrap:wrap;align-items:center;">
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:8px;">
               ${opportunityLabel}
               <span class="tag safe">시장 데이터 분석 완료</span>
               <span style="font-size:0.85rem;color:var(--text-muted);">기존 영상 ${returnedCount}개 분석 · 전략 기획안 실시간 생성</span>
             </div>
           </div>
           <div class="flex gap-8">
-            <button class="btn btn-secondary btn-sm" onclick="window.redoDeepAnalysis()">🔄 다시 추천</button>
-            <button class="btn btn-secondary btn-sm" onclick="this.closest('.chart-container').remove()">✕ 닫기</button>
+            <button class="btn btn-secondary" style="padding:5px 10px; font-size:0.75rem; white-space:nowrap; border-radius:8px;" onclick="window.redoDeepAnalysis()">🔄 다시 추천</button>
+            <button class="btn btn-secondary" style="padding:5px 10px; font-size:0.75rem; white-space:nowrap; border-radius:8px;" onclick="this.closest('.chart-container').remove()">✕ 닫기</button>
           </div>
         </div>
         
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:10px;">
-          <div style="font-size:1.25rem; font-weight:800; color:var(--text-secondary);">
+        <div style="margin-bottom:12px;">
+          <div style="font-size:1rem; font-weight:700; color:var(--text-secondary); white-space:nowrap; margin-bottom:6px;">
             💡 [Step 1] 틈새 시장 테마 추천 (TOP 10)
           </div>
-          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">
+          <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px; line-height:1.4;">
             * 이 카테고리 조합에서 아직 다뤄지지 않은 **새로운 주제(Theme) 방향**을 추천합니다.
           </p>
-          <div class="flex gap-8">
-            <button class="btn btn-secondary btn-xs" style="padding:4px 10px; font-size:0.75rem;" onclick="window.copyAllKeywords(this)">
-              📋 전체 키워드 복사
-            </button>
-            <button class="card-magnify-btn" style="position:static;" onclick="toggleListMagnify(this)">
-              🔍 글씨 전체 크게
-            </button>
-          </div>
         </div>
 
         
