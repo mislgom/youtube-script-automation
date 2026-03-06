@@ -98,7 +98,7 @@ export async function callGemini(prompt, options = {}) {
                             prompt: prompt,
                             model: modelName,
                             temperature: 0,
-                            maxTokens: 2048
+                            maxTokens: 8192
                         })
                     });
                     const data = await res.json();
@@ -825,9 +825,9 @@ ${yadamBoldInstruction}
     "title": "기존 인기작들을 압도할 파격적인 제목",
     "keywords": ["키워드1", "2", "3", "4", "5"],
     "gap_rate": 95, 
-    "reason": "기존 영상들은 대부분 ~인 점에 착안하여, 이번 기획은 ~라는 완전히 새로운 각도를 통해 고수요 층을 흡수합니다."
+    "reason": "2~3문장으로 간결하게 작성"
   },
-  ... (총 10개)
+  ... (총 5개)
 ]`;
 
     // DNA 접목 (3단계 적용)
@@ -849,7 +849,7 @@ ${yadamBoldInstruction}
 
     let result;
     try {
-        result = await callGemini(prompt, { jsonMode: true });
+        result = await callGemini(prompt, { jsonMode: true, maxTokens: 8192 });
     } catch (err) {
         console.error('[deepSuggestTopics] callGemini 실패:', err.message);
         throw err;
