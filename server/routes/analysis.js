@@ -1019,4 +1019,50 @@ ${batch.map((v, idx) => `${idx + 1}. ${v.video_id} | ${v.title}`).join('\n')}
     }
 });
 
+// ═══════════════════════════════════════════════════════════
+// 단일 영상 세부 카테고리 분류 (수집 시 자동 호출용)
+// ═══════════════════════════════════════════════════════════
+export async function classifySingleVideoSubCategory(videoId, videoTitle, categoryNames) {
+    if (!categoryNames || categoryNames.length === 0) return;
+
+    for (const catName of categoryNames) {
+        const subCats = SUB_CAT_MAP[catName];
+        if (!subCats) continue;
+
+        const prompt = `아래 유튜브 야담 영상들의 제목을 보고, 각 영상이 해당하는 세부 카테고리를 1개 선택하세요.
+
+[사건유형: ${catName}]
+세부 카테고리 목록: ${subCats.join(', ')}
+
+영상 목록:
+1. ${videoId} | ${videoTitle}
+
+응답 형식 (JSON 배열만 출력):
+[{"videoId":"영상ID","subCategory":"선택한세부카테고리"},...]
+주의: 반드시 위 세부 카테고리 목록에서만 선택하세요.`;
+
+        try {
+            const raw = await callGemini(prompt, { jsonMode: true });
+            if (!raw) continue;
+            const jsonStr = raw.replace(/```json|```/g, '').trim();
+            const results = JSON.parse(jsonStr);
+
+            for (const item of results) {
+                if (!item.videoId || !item.subCategory) continue;
+                if (!subCats.includes(item.subCategory)) continue;
+
+                runSQLNoSave(`INSERT OR IGNORE INTO sub_categories (parent_category_name, name) VALUES (?, ?)`, [catName, item.subCategory]);
+                const scRow = queryOne(`SELECT id FROM sub_categories WHERE parent_category_name = ? AND name = ?`, [catName, item.subCategory]);
+                if (!scRow) continue;
+
+                runSQLNoSave(`INSERT OR IGNORE INTO video_sub_categories (video_id, sub_category_id) VALUES (?, ?)`, [item.videoId, scRow.id]);
+            }
+        } catch (err) {
+            console.error(`[SubCat] Single classify error for ${videoId} / ${catName}:`, err.message);
+        }
+    }
+
+    saveDB();
+}
+
 export default router;

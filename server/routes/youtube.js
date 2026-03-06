@@ -4,6 +4,7 @@ import { fetchChannelVideos, searchVideos, fetchComments } from '../services/you
 import { fetchTranscript } from '../services/transcript-fetcher.js';
 import { extractKeywords, categorizeVideo, summarizeTranscript } from '../services/gemini-service.js';
 import { categorizeVideoByKeywords } from '../services/gap-analyzer.js';
+import { classifySingleVideoSubCategory } from './analysis.js';
 
 const router = Router();
 const activeJobs = new Map();
@@ -200,6 +201,25 @@ async function processChannel(channel, channelDbId, maxResults, job) {
                         const keywordCats = categorizeVideoByKeywords({ title: v.title, description: v.description || '' }, allDBCats);
                         for (const catId of keywordCats) {
                             runSQLNoSave('INSERT OR IGNORE INTO video_categories (video_id, category_id, source) VALUES (?, ?, ?)', [videoDbId, catId, 'keyword_fallback']);
+                        }
+
+                        // 3. Auto sub-category classification for 사건유형 categories
+                        try {
+                            const eventCatNames = queryAll(`
+                                SELECT c.name FROM video_categories vc
+                                JOIN categories c ON vc.category_id = c.id
+                                WHERE vc.video_id = ? AND c.group_name = '사건유형'
+                            `, [videoDbId]).map(r => r.name);
+                            console.log(`[SubCat] video_id=${v.video_id}, dbId=${videoDbId}, 사건유형=${JSON.stringify(eventCatNames)}`);
+                            if (eventCatNames.length > 0) {
+                                console.log(`[SubCat] 분류 시작: ${v.video_id} (${v.title})`);
+                                await classifySingleVideoSubCategory(v.video_id, v.title, eventCatNames);
+                                console.log(`[SubCat] 분류 완료: ${v.video_id}`);
+                            } else {
+                                console.log(`[SubCat] 사건유형 없어서 스킵: ${v.video_id}`);
+                            }
+                        } catch (subCatErr) {
+                            console.error(`[SubCat] Auto classify failed for ${v.video_id}:`, subCatErr.message, subCatErr.stack);
                         }
 
                         // Save economy metadata if available
