@@ -750,13 +750,20 @@ function renderSubCategoryCards(deepArea, detail, catX, catY, count, meta, api) 
         </h4>
         <button class="btn btn-secondary btn-sm" onclick="this.closest('.chart-container').remove()">✕ 닫기</button>
       </div>
-      <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom:16px;">
+      <p style="color:var(--text-muted); font-size:0.8rem; margin-bottom:8px;">
         아래 세부 카테고리를 클릭하면 해당 조합으로 AI 주제 추천이 시작됩니다.
       </p>
+      <div class="sub-category-filter" style="display:flex; gap:8px; padding:12px 0; margin-bottom:4px; border-bottom:1px solid #333; flex-wrap:wrap;">
+        <button class="filter-btn active" data-filter="all" style="padding:6px 14px; border-radius:20px; border:none; cursor:pointer; font-size:13px; font-weight:bold; background:#3b82f6; color:#fff; opacity:1;">전체</button>
+        <button class="filter-btn" data-filter="매우 포화" style="padding:6px 14px; border-radius:20px; border:none; cursor:pointer; font-size:13px; font-weight:bold; background:#dc2626; color:#fff; opacity:0.5;">🔴 매우 포화</button>
+        <button class="filter-btn" data-filter="포화" style="padding:6px 14px; border-radius:20px; border:none; cursor:pointer; font-size:13px; font-weight:bold; background:#f97316; color:#fff; opacity:0.5;">🟠 포화</button>
+        <button class="filter-btn" data-filter="중간" style="padding:6px 14px; border-radius:20px; border:none; cursor:pointer; font-size:13px; font-weight:bold; background:#eab308; color:#000; opacity:0.5;">🟡 중간</button>
+        <button class="filter-btn" data-filter="여유" style="padding:6px 14px; border-radius:20px; border:none; cursor:pointer; font-size:13px; font-weight:bold; background:#22c55e; color:#fff; opacity:0.5;">🟢 여유</button>
+      </div>
   `;
 
   for (const group of (detail.groups || [])) {
-    html += `<div style="margin-bottom:16px;">
+    html += `<div class="sub-cat-group" style="margin-bottom:16px;">
       <div style="font-weight:700; color:var(--text-secondary); font-size:0.85rem; margin-bottom:8px; border-left:3px solid var(--accent); padding-left:8px;">
         ${group.groupName}
       </div>
@@ -790,6 +797,30 @@ function renderSubCategoryCards(deepArea, detail, catX, catY, count, meta, api) 
 
   html += `</div>`;
   deepArea.innerHTML = html;
+
+  // 필터 버튼 이벤트
+  deepArea.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      deepArea.querySelectorAll('.filter-btn').forEach(b => b.style.opacity = '0.5');
+      btn.style.opacity = '1';
+      const f = btn.dataset.filter;
+      deepArea.querySelectorAll('.sub-cat-group').forEach(group => {
+        let visibleCount = 0;
+        group.querySelectorAll('.sub-category-card').forEach(card => {
+          const level = parseInt(card.dataset.level || '0', 10);
+          let show = false;
+          if (f === 'all') show = true;
+          else if (f === '매우 포화') show = level === 5;
+          else if (f === '포화') show = level === 4;
+          else if (f === '중간') show = level === 3;
+          else if (f === '여유') show = level <= 2;
+          card.style.display = show ? '' : 'none';
+          if (show) visibleCount++;
+        });
+        group.style.display = visibleCount === 0 ? 'none' : '';
+      });
+    });
+  });
 
   deepArea.querySelectorAll('.sub-category-card').forEach(card => {
     card.addEventListener('click', async () => {
