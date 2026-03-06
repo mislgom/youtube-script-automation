@@ -268,6 +268,13 @@ async function processChannel(channel, channelDbId, maxResults, job) {
             } catch (err) {
                 console.error('[ERROR] 영상 처리 실패:', v.video_id, err.message);
             }
+
+            // 수집 중지 여부 확인 (이미 저장된 영상은 유지)
+            const activeCheck = queryOne('SELECT is_active, name FROM channels WHERE id = ?', [channelDbId]);
+            if (activeCheck && activeCheck.is_active === 0) {
+                console.log(`[수집 중단] ${activeCheck.name} - 사용자가 중지함 (수집 완료분: DB에 이미 저장됨)`);
+                break;
+            }
         }
 
         // Update channel last_fetched

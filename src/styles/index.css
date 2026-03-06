@@ -1054,6 +1054,14 @@ select {
   font-size: 13px;
 }
 
+.channel-paused {
+  opacity: 0.5;
+}
+.btn-paused {
+  background: #666 !important;
+  cursor: not-allowed !important;
+}
+
 /* --- Search Palette --- */
 .search-palette {
   position: fixed;

@@ -35,6 +35,7 @@ export async function initDB() {
     last_fetched TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   )`);
+  try { db.run("ALTER TABLE channels ADD COLUMN is_active INTEGER DEFAULT 1"); } catch(e) {}
 
   db.run(`CREATE TABLE IF NOT EXISTS videos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

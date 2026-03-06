@@ -92,6 +92,31 @@ router.post('/', async (req, res) => {
     }
 });
 
+// GET /api/channels/:id — get single channel
+router.get('/:id', (req, res) => {
+    try {
+        const channel = queryOne('SELECT * FROM channels WHERE id = ?', [req.params.id]);
+        if (!channel) return res.status(404).json({ error: '채널을 찾을 수 없습니다.' });
+        res.json(channel);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /api/channels/:id/toggle-active — toggle channel active state
+router.put('/:id/toggle-active', (req, res) => {
+    try {
+        const { id } = req.params;
+        const channel = queryOne('SELECT is_active FROM channels WHERE id = ?', [id]);
+        if (!channel) return res.status(404).json({ error: 'Channel not found' });
+        const newState = channel.is_active ? 0 : 1;
+        runSQL('UPDATE channels SET is_active = ? WHERE id = ?', [newState, id]);
+        res.json({ id, is_active: newState });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // DELETE /api/channels/:id — delete channel and its videos
 router.delete('/:id', (req, res) => {
     try {

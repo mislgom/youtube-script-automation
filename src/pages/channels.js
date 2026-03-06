@@ -104,6 +104,10 @@ export async function renderChannels(container, { api, navigate }) {
 
     // Trigger fetch for all channels
     for (const ch of channels) {
+      if (ch.is_active === 0) {
+        console.log(`[수집 건너뛰기] ${ch.name} (수집 중지 상태)`);
+        continue;
+      }
       startFetch(api, ch.id, activePolls);
     }
 
@@ -147,15 +151,22 @@ async function loadChannels(api, navigate) {
     }
 
     // Simplified Fixed Category Filters
+    const countAll = channels.length;
+    const countByTag = {};
+    FIXED_CATEGORIES.forEach(cat => {
+      countByTag[cat] = channels.filter(ch => ch.group_tag === cat).length;
+    });
+    const countUnclassified = channels.filter(ch => !ch.group_tag).length;
+
     folderEl.innerHTML = `
-    <div class="tab ${currentFolder === 'all' ? 'active' : ''}" data-tag="all" style="cursor:pointer; padding:6px 18px; border-radius:20px; font-weight:800; font-size:1.1rem;" > 전체보기</div>
+    <div class="tab ${currentFolder === 'all' ? 'active' : ''}" data-tag="all" style="cursor:pointer; padding:6px 18px; border-radius:20px; font-weight:800; font-size:1.1rem;" > 전체보기 (${countAll})</div>
       ${FIXED_CATEGORIES.map(t => `
         <div class="tab ${currentFolder === t ? 'active' : ''}" data-tag="${t}" style="cursor:pointer; padding:6px 18px; border-radius:20px; font-weight:800; font-size:1.1rem;">
-          ${t}
+          ${t} (${countByTag[t] || 0})
         </div>
       `).join('')
       }
-  <div class="tab ${currentFolder === 'unclassified' ? 'active' : ''}" data-tag="unclassified" style="cursor:pointer; padding:6px 18px; border-radius:20px; font-weight:800; font-size:1.1rem; border:1px dashed var(--border);">미분류 📁</div>
+  <div class="tab ${currentFolder === 'unclassified' ? 'active' : ''}" data-tag="unclassified" style="cursor:pointer; padding:6px 18px; border-radius:20px; font-weight:800; font-size:1.1rem; border:1px dashed var(--border);">미분류 (${countUnclassified}) 📁</div>
   `;
 
     // Category filter clicks
@@ -209,6 +220,19 @@ async function loadChannels(api, navigate) {
       btn.addEventListener('click', () => {
         document.getElementById('stop-all-fetch-btn').style.display = 'block';
         startFetch(api, btn.dataset.id, activePolls);
+      });
+    });
+
+    // Toggle active buttons
+    listEl.querySelectorAll('.toggle-active-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        try {
+          const res = await fetch(`/api/channels/${id}/toggle-active`, { method: 'PUT' });
+          if (res.ok) loadChannels(api, navigate);
+        } catch (e) {
+          console.error('수집 상태 변경 실패:', e);
+        }
       });
     });
 
@@ -374,7 +398,7 @@ function renderChannelCard(ch, allTags = []) {
     : `https://www.youtube.com/channel/${ch.channel_id}`;
 
   return `
-    <div class="channel-card" data-id="${ch.id}">
+    <div class="channel-card ${ch.is_active === 0 ? 'channel-paused' : ''}" data-id="${ch.id}">
         <div class="profile-section">
             <a href="${ytUrl}" target="_blank" rel="noopener noreferrer" title="유튜브 채널로 이동" style="display:contents;">
             ${ch.thumbnail_url
@@ -401,10 +425,13 @@ function renderChannelCard(ch, allTags = []) {
             </div>
         </div>
         <span class="last-sync">마지막 수집: ${lastFetchedStr}</span>
-        <div class="button-group">
-            <button class="btn btn-collect fetch-btn" data-id="${ch.id}">🔄 영상 수집</button>
-            <button class="btn btn-stat dashboard-btn" data-id="${ch.id}">📊</button>
-            <button class="btn btn-delete delete-btn" data-id="${ch.id}" data-name="${ch.name}">삭제</button>
+        <div class="button-group" style="display:flex; gap:6px; align-items:stretch; flex-wrap:nowrap; padding:8px 12px; justify-content:center;">
+            <button class="btn ${ch.is_active === 0 ? 'btn-paused' : 'btn-collect'} fetch-btn" data-id="${ch.id}" ${ch.is_active === 0 ? 'disabled' : ''} style="white-space:nowrap; padding:8px 10px; font-size:13px; border-radius:6px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;">🔄 영상 수집</button>
+            <button class="btn toggle-active-btn" data-id="${ch.id}" style="background:${ch.is_active === 0 ? '#ef4444' : '#f59e0b'}; color:${ch.is_active === 0 ? '#fff' : '#000'}; white-space:nowrap; padding:8px 10px; font-size:13px; border-radius:6px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;">
+              ${ch.is_active === 0 ? '▶️ 재개' : '⏸️ 중지'}
+            </button>
+            <button class="btn btn-stat dashboard-btn" data-id="${ch.id}" style="white-space:nowrap; padding:8px 10px; font-size:13px; border-radius:6px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;">📊</button>
+            <button class="btn btn-delete delete-btn" data-id="${ch.id}" data-name="${ch.name}" style="white-space:nowrap; padding:8px 10px; font-size:13px; border-radius:6px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;">삭제</button>
         </div>
         <div class="progress-area" id="progress-${ch.id}" style="margin-top:20px;display:none; padding-top:15px; border-top:1px solid #25262d;">
             <div class="progress-bar" style="height:6px; background:#1a1b23; border-radius:3px; overflow:hidden;">
