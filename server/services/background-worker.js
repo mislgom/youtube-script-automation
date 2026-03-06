@@ -1,5 +1,6 @@
-import { queryOne, runSQL } from '../db.js';
+import { queryOne, queryAll, runSQL } from '../db.js';
 import { extractKeywords, categorizeVideo } from './gemini-service.js';
+import { classifySingleVideoSubCategory } from './sub-category-service.js';
 
 let isRunning = false;
 let startTime = null;
@@ -62,6 +63,21 @@ async function processNext() {
         runSQL('UPDATE videos SET is_analyzed = 1, transcript_keywords = ? WHERE id = ?',
             [keywords.join(','), video.id]);
         processedCount++;
+
+        // 세부 카테고리 분류 (사건유형에 속한 영상만)
+        try {
+            const eventCatNames = queryAll(`
+                SELECT c.name FROM video_categories vc
+                JOIN categories c ON vc.category_id = c.id
+                WHERE vc.video_id = ? AND c.group_name = '사건유형'
+            `, [video.id]).map(r => r.name);
+            if (eventCatNames.length > 0) {
+                await classifySingleVideoSubCategory(video.video_id, video.title, eventCatNames);
+                console.log(`[BG] 세부 분류 완료: ${video.video_id}`);
+            }
+        } catch (subCatErr) {
+            console.error(`[BG] 세부 분류 실패 (${video.title}):`, subCatErr.message);
+        }
     } catch (e) {
         console.error(`[BG] 처리 실패 (${video.title}):`, e.message);
         // 무한 루프 방지: 실패해도 analyzed=1로 마킹

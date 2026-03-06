@@ -20,6 +20,13 @@ export async function renderSettings(container, { api }) {
             </div>
           </div>
           <div class="input-group">
+            <label style="font-size:1.1rem; font-weight:800; margin-bottom:8px; display:block;">Cloud Run URL (Gemini 프록시)</label>
+            <div class="input-with-btn">
+              <input type="text" id="cloud-run-url" placeholder="https://gemini-proxy-xxxxx.us-central1.run.app">
+              <button class="btn btn-primary" id="save-cloud-run-url">저장</button>
+            </div>
+          </div>
+          <div class="input-group">
             <label style="font-size:1.1rem; font-weight:800; margin-bottom:8px; display:block;">Gemini API 키 / Vertex 토큰</label>
             <div class="input-with-btn">
               <input type="password" id="gemini-api-key" placeholder="Gemini API 키 또는 AQ.A... 토큰 입력">
@@ -38,9 +45,6 @@ export async function renderSettings(container, { api }) {
               <label>Location (Region)</label>
               <input type="text" id="google-location" placeholder="us-central1">
             </div>
-            <label style="margin-top:10px; display:block; font-size:13px; color:#aaa;">Cloud Run 중계 서버 주소 (선택)</label>
-            <input type="text" id="cloud-run-url" placeholder="https://gemini-proxy-xxxxx.us-central1.run.app" style="width:100%; padding:8px; margin-top:4px; background:#1a1a2e; color:#fff; border:1px solid #333; border-radius:6px;">
-            <div style="font-size:11px; color:#666; margin-top:2px;">입력하면 JSON 파일 없이 Gemini API를 호출합니다</div>
             <button class="btn btn-secondary w-100" id="save-vertex-config">클라우드 설정 저장</button>
           </div>
           <div id="api-status" style="font-size:1rem; color:var(--text-muted); font-weight:700; margin-top:10px;"></div>
@@ -166,16 +170,23 @@ export async function renderSettings(container, { api }) {
     } catch (e) { showToast(e.message, 'error'); }
   });
 
+  // Save Cloud Run URL
+  document.getElementById('save-cloud-run-url').addEventListener('click', async () => {
+    const val = document.getElementById('cloud-run-url').value;
+    try {
+      await api.updateSettings({ cloud_run_url: val });
+      showToast('Cloud Run URL이 저장되었습니다.', 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+  });
+
   // Save Vertex Config
   document.getElementById('save-vertex-config').addEventListener('click', async () => {
     const projectId = document.getElementById('google-project-id').value;
     const location = document.getElementById('google-location').value;
-    const cloudRunUrl = document.getElementById('cloud-run-url').value;
     try {
       await api.updateSettings({
         google_project_id: projectId,
         google_location: location,
-        cloud_run_url: cloudRunUrl
       });
       showToast('클라우드 구성이 저장되었습니다.', 'success');
       renderSettings(container, { api });
