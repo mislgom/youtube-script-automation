@@ -926,7 +926,16 @@ router.get('/sub-category-progress', (req, res) => {
             JOIN categories c ON vc.category_id = c.id
             WHERE c.group_name = '사건유형'
         `);
-        const classifiedRow = queryOne(`SELECT COUNT(DISTINCT video_id) as cnt FROM video_sub_categories`);
+        const classifiedRow = queryOne(`
+            SELECT COUNT(DISTINCT video_id) as cnt
+            FROM video_sub_categories
+            WHERE video_id IN (
+                SELECT v.video_id FROM videos v
+                JOIN video_categories vc ON v.id = vc.video_id
+                JOIN categories c ON vc.category_id = c.id
+                WHERE c.group_name = '사건유형'
+            )
+        `);
         const total = totalRow?.cnt || 0;
         const classified = classifiedRow?.cnt || 0;
         res.json({ total, classified, unclassified: total - classified });
