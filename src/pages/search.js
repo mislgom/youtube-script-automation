@@ -406,6 +406,7 @@ export async function renderSearch(container, { api }) {
                   <div class="filter-item-custom">
                       <label>PERIOD</label>
                       <select class="select-custom-slate" id="trend-period">
+                          <option value="all">전체</option>
                           <option value="week">최근 1주일</option>
                           <option value="month" selected>최근 1개월</option>
                           <option value="3months">최근 3개월</option>

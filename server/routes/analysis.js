@@ -944,9 +944,21 @@ router.get('/background-status', (req, res) => {
 
 // POST /api/analysis/classify-sub-categories
 router.post('/classify-sub-categories', async (req, res) => {
+    const debug = {
+        categories: {},
+        videoCounts: {},
+        errors: [],
+        geminiCalls: { total: 0, success: 0, failed: 0 },
+        cloudRunUrl: queryOne("SELECT value FROM settings WHERE key='cloud_run_url'")?.value || 'NOT SET',
+        totalVideos: queryOne('SELECT COUNT(*) as cnt FROM videos')?.cnt || 0,
+        totalVideoCategories: queryOne('SELECT COUNT(*) as cnt FROM video_categories')?.cnt || 0,
+        totalSubCategories: queryOne('SELECT COUNT(*) as cnt FROM sub_categories')?.cnt || 0,
+        totalVideoSubCategories: queryOne('SELECT COUNT(*) as cnt FROM video_sub_categories')?.cnt || 0,
+    };
     try {
         const { parentCategory = null, limit = 100 } = req.body || {};
         const categories = parentCategory ? [parentCategory] : Object.keys(SUB_CAT_MAP);
+        console.log('[분류] 시작, 카테고리 목록:', categories);
 
         let totalProcessed = 0;
         let totalFailed = 0;
@@ -956,6 +968,8 @@ router.post('/classify-sub-categories', async (req, res) => {
             if (!subCats) continue;
 
             const catRow = queryOne("SELECT id FROM categories WHERE name = ? AND group_name = '사건유형'", [catName]);
+            console.log('[분류] 카테고리:', catName, 'catRow:', catRow);
+            debug.categories[catName] = catRow ? { found: true, id: catRow.id } : { found: false };
             if (!catRow) continue;
 
             const videos = queryAll(`
@@ -969,11 +983,14 @@ router.post('/classify-sub-categories', async (req, res) => {
                 )
                 LIMIT ?
             `, [catRow.id, catName, limit]);
+            console.log('[분류] 미분류 영상:', videos.length, '개');
+            debug.videoCounts[catName] = videos.length;
 
             if (videos.length === 0) continue;
 
             for (let i = 0; i < videos.length; i += 20) {
                 const batch = videos.slice(i, i + 20);
+                console.log('[분류] Gemini 호출 배치:', batch.map(v => v.title));
                 const prompt = `아래 유튜브 야담 영상들의 제목을 보고, 각 영상이 해당하는 세부 카테고리를 1개 선택하세요.
 
 [사건유형: ${catName}]
@@ -988,8 +1005,16 @@ ${batch.map((v, idx) => `${idx + 1}. ${v.video_id} | ${v.title}`).join('\n')}
 
                 try {
                     await new Promise(resolve => setTimeout(resolve, 3000));
+                    debug.geminiCalls.total++;
                     const raw = await callGemini(prompt, { jsonMode: true });
-                    if (!raw) continue;
+                    console.log('[분류] Gemini 응답:', raw);
+                    if (!raw) {
+                        debug.geminiCalls.failed++;
+                        debug.errors.push(`[${catName}] Gemini 응답 null`);
+                        continue;
+                    }
+                    debug.geminiCalls.success++;
+                    debug.lastResponse = raw.substring(0, 100);
                     const jsonStr = raw.replace(/```json|```/g, '').trim();
                     const results = JSON.parse(jsonStr);
 
@@ -1005,16 +1030,22 @@ ${batch.map((v, idx) => `${idx + 1}. ${v.video_id} | ${v.title}`).join('\n')}
                         totalProcessed++;
                     }
                 } catch (batchErr) {
+                    console.error('[분류] 에러:', batchErr.message);
                     logToFile(`[SubCat] Batch error for ${catName}: ${batchErr.message}`);
+                    debug.geminiCalls.failed++;
+                    debug.errors.push(`[${catName}] ${batchErr.message}`);
                     totalFailed += batch.length;
                 }
             }
         }
 
         saveDB();
-        res.json({ success: true, processed: totalProcessed, failed: totalFailed });
+        console.log('[분류 응답]', JSON.stringify({ processed: totalProcessed, failed: totalFailed, debug }));
+        res.json({ success: true, processed: totalProcessed, failed: totalFailed, debug });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error('[분류] 에러:', err.message);
+        debug.errors.push(`[핸들러] ${err.message}`);
+        res.status(500).json({ error: err.message, debug });
     }
 });
 

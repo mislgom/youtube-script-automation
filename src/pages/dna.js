@@ -26,10 +26,10 @@ export async function renderDna(container, { api }) {
         <div class="input-group" style="flex:0.6; margin-bottom:0;">
           <label>수집 기간</label>
           <select id="dna-days">
+            <option value="0">전체</option>
             <option value="30">최근 30일</option>
             <option value="90" selected>최근 90일</option>
             <option value="365">최근 1년</option>
-            <option value="0">전체</option>
           </select>
         </div>
         <div class="input-group" style="flex:0.8; margin-bottom:0;">
