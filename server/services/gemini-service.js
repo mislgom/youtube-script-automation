@@ -71,6 +71,10 @@ export async function callGemini(prompt, options = {}) {
     const projectId = projectIdRow?.value?.trim();
     const location = locationRow?.value?.trim() || 'us-central1';
 
+    // Cloud Run 중계 서버 URL 확인
+    const cloudRunRow = queryOne("SELECT value FROM settings WHERE key = 'cloud_run_url'");
+    const cloudRunUrl = cloudRunRow?.value?.trim();
+
     const MAX_RETRIES = 3;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     let timer;
@@ -81,6 +85,45 @@ export async function callGemini(prompt, options = {}) {
 
         const fetchPromise = (async () => {
             const modelName = 'gemini-2.5-flash';
+
+            // CASE 0: Cloud Run 중계 서버 (최우선, JSON 파일 불필요)
+            if (cloudRunUrl && cloudRunUrl.startsWith('https://')) {
+                const proxyApiUrl = `${cloudRunUrl}/api/gemini`;
+                console.log(`[AI Request] Cloud Run Proxy: ${modelName}, URL: ${cloudRunUrl}`);
+                try {
+                    const res = await fetch(proxyApiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            prompt: prompt,
+                            model: modelName,
+                            temperature: 0,
+                            maxTokens: 2048
+                        })
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                        let text;
+                        if (data.candidates) {
+                            if (Array.isArray(data)) {
+                                text = data.map(chunk => chunk.candidates?.[0]?.content?.parts?.[0]?.text || '').join('');
+                            } else {
+                                text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                            }
+                        } else if (data.result) {
+                            text = data.result;
+                        } else {
+                            text = JSON.stringify(data);
+                        }
+                        if (text) return text;
+                    }
+                    console.warn(`[AI Warning] Cloud Run Proxy 실패 (${res.status}), 기존 방식으로 전환`);
+                    logToFile(`[AI Warning] Cloud Run Proxy failed (${res.status}): ${JSON.stringify(data)}`);
+                } catch (proxyErr) {
+                    console.warn(`[AI Warning] Cloud Run Proxy 연결 실패: ${proxyErr.message}, 기존 방식으로 전환`);
+                    logToFile(`[AI Warning] Cloud Run Proxy error: ${proxyErr.message}`);
+                }
+            }
 
             // CASE 1: Vertex AI with Bearer Token (AQ.A...)
             if (auth.type === 'vertex_token' && projectId) {

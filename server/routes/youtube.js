@@ -10,6 +10,29 @@ const router = Router();
 const activeJobs = new Map();
 
 // ═══════════════════════════════════════════════════════════
+// 채널 수집 큐 — 동시 요청 시 1개씩 순차 처리
+// ═══════════════════════════════════════════════════════════
+const channelQueue = [];
+let isProcessing = false;
+
+async function processQueue() {
+    if (isProcessing) return;
+    if (channelQueue.length === 0) return;
+    isProcessing = true;
+    const item = channelQueue.shift();
+    try {
+        await processChannel(item.channel, item.channelDbId, item.maxResults, item.job);
+    } catch (e) {
+        console.error('[Queue] 채널 처리 오류:', e.message);
+        console.error('[Queue] Stack:', e.stack);
+        item.job.status = 'error';
+        item.job.error = e.message;
+    }
+    isProcessing = false;
+    processQueue(); // 다음 채널 처리
+}
+
+// ═══════════════════════════════════════════════════════════
 // v4: POST /api/youtube/search — trending/viral video search
 // ═══════════════════════════════════════════════════════════
 router.post('/search', async (req, res) => {
@@ -59,20 +82,25 @@ router.post('/fetch/:channelId', async (req, res) => {
         if (!channel) return res.status(404).json({ error: '채널을 찾을 수 없습니다.' });
 
         if (activeJobs.has(channelDbId)) {
-            return res.status(409).json({ error: '이미 수집 중입니다.' });
+            // 이미 큐에 있거나 처리 중
+            const queuePos = channelQueue.findIndex(i => i.channelDbId === channelDbId);
+            if (queuePos >= 0) return res.status(409).json({ error: '이미 큐에 있습니다.', status: 'queued', position: queuePos + 1 });
+            return res.status(409).json({ error: '이미 수집 중입니다.', status: 'processing' });
         }
 
-        // Start job
-        const job = { status: 'fetching', progress: 0, total: 0, cancel: false, errors: [] };
+        // 큐에 추가
+        const job = { status: 'queued', progress: 0, total: 0, cancel: false, errors: [] };
         activeJobs.set(channelDbId, job);
-        res.json({ message: '수집을 시작합니다.', jobId: channelDbId });
+        channelQueue.push({ channel, channelDbId, maxResults, job });
 
-        // Run in background
-        processChannel(channel, channelDbId, maxResults, job).catch(err => {
-            console.error('Fetch error:', err);
-            job.status = 'error';
-            job.error = err.message;
-        });
+        const position = channelQueue.length;
+        if (isProcessing) {
+            res.json({ message: '큐에 추가되었습니다.', jobId: channelDbId, status: 'queued', position });
+        } else {
+            res.json({ message: '수집을 시작합니다.', jobId: channelDbId, status: 'queued', position });
+        }
+
+        processQueue();
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -108,6 +136,7 @@ async function processChannel(channel, channelDbId, maxResults, job) {
             if (job.cancel) { job.status = 'cancelled'; activeJobs.delete(channelDbId); return; }
 
             const v = videos[i];
+            try {
             job.progress = i + 1;
             job.status = 'processing';
 
@@ -235,6 +264,9 @@ async function processChannel(channel, channelDbId, maxResults, job) {
                 }
             } catch (e) {
                 job.errors.push(`${v.title}: ${e.message}`);
+            }
+            } catch (err) {
+                console.error('[ERROR] 영상 처리 실패:', v.video_id, err.message);
             }
         }
 

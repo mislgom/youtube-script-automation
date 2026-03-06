@@ -1,3 +1,12 @@
+// 글로벌 에러 핸들러 — 서버 크래시 방지
+process.on('uncaughtException', (err) => {
+    console.error('[FATAL] uncaughtException:', err.message);
+    console.error(err.stack);
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[FATAL] unhandledRejection:', reason);
+});
+
 import express from 'express';
 import cors from 'cors';
 import { initDB } from './db.js';
