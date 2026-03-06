@@ -171,14 +171,16 @@ router.get('/gaps/yadam', async (req, res) => {
         const channelCount = (queryOne('SELECT COUNT(*) as cnt FROM channels') || { cnt: 0 }).cnt;
         const localVideoCount = (queryOne('SELECT COUNT(*) as cnt FROM videos') || { cnt: 0 }).cnt;
         const geminiKey = queryOne("SELECT value FROM settings WHERE key = 'gemini_api_key'")?.value;
+        const cloudRunUrl = queryOne("SELECT value FROM settings WHERE key = 'cloud_run_url'")?.value?.trim();
 
         // 1. Key Check & Mode Selection
         const hasGeminiKey = geminiKey && geminiKey.trim() !== '';
+        const hasCloudRun = !!cloudRunUrl;
         const isVertex = geminiKey?.startsWith('AQ');
         const googleProjectId = queryOne("SELECT value FROM settings WHERE key = 'google_project_id'")?.value;
         const hasProjectID = googleProjectId && googleProjectId.trim() !== '';
 
-        if (!hasGeminiKey || (isVertex && !hasProjectID)) {
+        if ((!hasGeminiKey && !hasCloudRun) || (isVertex && !hasProjectID)) {
             console.log('[YadamGaps] 필수 Gemini API 키 또는 Project ID가 누락되었습니다.');
             return res.json({
                 xLabels: [], yLabels: [], matrix: [], gaps: [], suggestions: [],
