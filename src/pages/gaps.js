@@ -1190,10 +1190,12 @@ function attachSuggestionEvents(container, api) {
         // 2. Render DNA UI (4 Tabs) inside the result area
         resultArea.innerHTML = `
           <div style="background:var(--bg-card); padding:20px; border-radius:12px; border:1px solid var(--accent-glow); margin-bottom:16px;">
-            <div style="font-size:0.9rem; font-weight:800; color:var(--accent); margin-bottom:12px; display:flex; align-items:center; gap:6px;">
-              🧬 분석된 주제 최적화 DNA (Spike Pattern)
+            <div style="font-size:0.9rem; font-weight:800; color:var(--accent); margin-bottom:12px; display:flex; align-items:center; justify-content:space-between; gap:6px;">
+              <span>🧬 분석된 주제 최적화 DNA (Spike Pattern)</span>
+              <button class="dna-section-toggle" style="background:none; border:1px solid rgba(255,255,255,0.15); color:var(--text-muted); cursor:pointer; font-size:0.72rem; font-weight:700; padding:2px 10px; border-radius:4px;">▼ 접기</button>
             </div>
-            
+
+            <div class="dna-collapsible-content" style="overflow:hidden; transition:max-height 0.3s ease;">
             <div class="flex gap-4 mb-16 theme-dna-tabs" style="background:rgba(255,255,255,0.03); padding:4px; border-radius:8px;">
               <button class="btn btn-secondary btn-xs active-tab" data-tab="hook" style="flex:1;">Hook</button>
               <button class="btn btn-secondary btn-xs" data-tab="struct" style="flex:1;">Struct</button>
@@ -1231,6 +1233,7 @@ function attachSuggestionEvents(container, api) {
             </div>
             
             <div class="theme-titles-result hidden mt-16"></div>
+            </div><!-- /dna-collapsible-content -->
           </div>
         `;
 
@@ -1251,6 +1254,19 @@ function attachSuggestionEvents(container, api) {
             });
           });
         });
+
+        // Event: DNA section toggle
+        const dnaToggleBtn = resultArea.querySelector('.dna-section-toggle');
+        const dnaCollapsible = resultArea.querySelector('.dna-collapsible-content');
+        if (dnaToggleBtn && dnaCollapsible) {
+          dnaCollapsible.style.maxHeight = dnaCollapsible.scrollHeight + 'px';
+          dnaToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = dnaCollapsible.style.maxHeight !== '0px';
+            dnaCollapsible.style.maxHeight = isOpen ? '0px' : dnaCollapsible.scrollHeight + 'px';
+            dnaToggleBtn.textContent = isOpen ? '▲ 펼치기' : '▼ 접기';
+          });
+        }
 
         // Event: Recommend Titles for this DNA
         const titleBtn = resultArea.querySelector('.theme-recommend-titles-btn');
@@ -1277,7 +1293,11 @@ function attachSuggestionEvents(container, api) {
             });
 
             titlesResult.innerHTML = `
-              <div style="font-weight:800; color:var(--danger); font-size:0.85rem; margin-bottom:12px;">🔥 떡상 공식 추천 제목 (클릭 시 뼈대 생성)</div>
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+                <div style="font-weight:800; color:var(--danger); font-size:0.85rem;">🔥 떡상 공식 추천 제목 (클릭 시 뼈대 생성)</div>
+                <button class="titles-section-toggle" style="background:none; border:1px solid rgba(255,255,255,0.15); color:var(--text-muted); cursor:pointer; font-size:0.72rem; font-weight:700; padding:2px 10px; border-radius:4px;">▼ 접기</button>
+              </div>
+              <div class="titles-collapsible-content" style="overflow:hidden; transition:max-height 0.3s ease;">
               <div style="display:flex; flex-direction:column; gap:8px;">
                 ${titles.map(t => `
                   <div class="theme-title-item" 
@@ -1294,7 +1314,20 @@ function attachSuggestionEvents(container, api) {
                 `).join('')}
               </div>
               <div class="theme-skeleton-area mt-16"></div>
+              </div><!-- /titles-collapsible-content -->
             `;
+            // Event: 떡상 제목 섹션 toggle
+            const titlesToggleBtn = titlesResult.querySelector('.titles-section-toggle');
+            const titlesCollapsible = titlesResult.querySelector('.titles-collapsible-content');
+            if (titlesToggleBtn && titlesCollapsible) {
+              titlesCollapsible.style.maxHeight = titlesCollapsible.scrollHeight + 'px';
+              titlesToggleBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isOpen = titlesCollapsible.style.maxHeight !== '0px';
+                titlesCollapsible.style.maxHeight = isOpen ? '0px' : titlesCollapsible.scrollHeight + 'px';
+                titlesToggleBtn.textContent = isOpen ? '▲ 펼치기' : '▼ 접기';
+              });
+            }
             titleBtn.innerHTML = '✅ 제목 추천 완료';
           } catch (err) {
             titlesResult.innerHTML = `<div style="color:var(--danger); font-size:0.8rem;">❌ 실패: ${err.message}</div>`;
@@ -1322,6 +1355,13 @@ function attachSuggestionEvents(container, api) {
           const resultArea = (el || document.querySelector('.theme-title-item input:checked'))?.closest('.theme-titles-result');
           if (!resultArea) return;
           const area = resultArea.querySelector('.theme-skeleton-area');
+          // 뼈대 생성 시 접혀있으면 펼치기
+          const titlesCol = resultArea.querySelector('.titles-collapsible-content');
+          if (titlesCol && titlesCol.style.maxHeight === '0px') {
+            titlesCol.style.maxHeight = titlesCol.scrollHeight + 'px';
+            const tBtn = resultArea.querySelector('.titles-section-toggle');
+            if (tBtn) tBtn.textContent = '▼ 접기';
+          }
           area.innerHTML = '<div class="flex-center" style="padding:20px; flex-direction:column; gap:10px;"><div class="spinner-sm"></div><div style="font-size:0.75rem;">대본 설계 중...</div></div>';
 
           try {
@@ -1342,6 +1382,8 @@ function attachSuggestionEvents(container, api) {
                 </div>
               </div>
             `;
+            // 뼈대 추가 후 collapsible max-height 갱신 (콘텐츠가 늘어났으므로)
+            if (titlesCol) titlesCol.style.maxHeight = titlesCol.scrollHeight + 'px';
             area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           } catch (err) {
             area.innerHTML = `<div style="color:var(--danger);">❌ 실패: ${err.message}</div>`;
