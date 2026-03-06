@@ -39,7 +39,7 @@ app.post('/api/gemini', async (req, res) => {
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 generationConfig: {
                     temperature: temperature || 0.4,
-                    maxOutputTokens: maxTokens || 2048
+                    maxOutputTokens: maxTokens || 8192
                 }
             })
         });
