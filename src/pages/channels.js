@@ -379,6 +379,7 @@ async function startFetch(api, channelId, activePolls) {
           btn.textContent = '🔄 영상 수집';
           showToast(`${status.completedCount || status.total}개 영상 수집 완료!`, 'success');
           finish();
+          loadChannels(api, navigate);
           return;
         }
 
@@ -400,6 +401,7 @@ async function startFetch(api, channelId, activePolls) {
           btn.disabled = false;
           btn.textContent = '🔄 영상 수집';
           finish();
+          loadChannels(api, navigate);
           return;
         }
 
@@ -409,6 +411,7 @@ async function startFetch(api, channelId, activePolls) {
           btn.disabled = false;
           btn.textContent = '🔄 영상 수집';
           finish();
+          loadChannels(api, navigate);
           return;
         }
 
@@ -417,6 +420,19 @@ async function startFetch(api, channelId, activePolls) {
           const pct = Math.round((status.progress / status.total) * 100);
           fill.style.width = pct + '%';
           text.textContent = status.progress + '/' + status.total + '개 처리 중 (' + pct + '%)';
+
+          // 수집된 영상 카운터 실시간 업데이트
+          const cardEl = document.querySelector('.channel-card[data-id="' + channelId + '"]');
+          if (cardEl) {
+            const countEl = cardEl.querySelector('.collected-count');
+            if (countEl) {
+              fetch('/api/channels/' + channelId).then(r => r.json()).then(ch => {
+                if (ch && ch.collected_count !== undefined) {
+                  countEl.textContent = ch.collected_count + '개';
+                }
+              }).catch(() => {});
+            }
+          }
         } else {
           text.textContent = '영상 목록 가져오는 중...';
         }
@@ -466,7 +482,7 @@ function renderChannelCard(ch, allTags = []) {
             </div>
             <div class="data-box videos">
                 <span class="label">수집된 영상</span>
-                <span class="value purple">${ch.collected_count || 0}개</span>
+                <span class="value purple collected-count">${ch.collected_count || 0}개</span>
             </div>
         </div>
         <span class="last-sync">마지막 수집: ${lastFetchedStr}</span>

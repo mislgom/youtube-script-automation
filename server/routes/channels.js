@@ -95,7 +95,11 @@ router.post('/', async (req, res) => {
 // GET /api/channels/:id — get single channel
 router.get('/:id', (req, res) => {
     try {
-        const channel = queryOne('SELECT * FROM channels WHERE id = ?', [req.params.id]);
+        const channel = queryOne(`
+            SELECT c.*,
+              (SELECT COUNT(*) FROM videos v WHERE v.channel_id = c.id) as collected_count
+            FROM channels c WHERE c.id = ?
+        `, [req.params.id]);
         if (!channel) return res.status(404).json({ error: '채널을 찾을 수 없습니다.' });
         res.json(channel);
     } catch (err) {

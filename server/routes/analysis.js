@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { queryAll, queryOne, runSQL, runSQLNoSave, saveDB } from '../db.js';
+import { getBackgroundStatus, startBackgroundWorker, stopBackgroundWorker } from '../services/background-worker.js';
 import { compareTexts, getTopKeywords } from '../services/similarity.js';
 import { callGemini, compareWithGemini, suggestTopics, analyzeComments, generateBenchmarkReport, generateUniqueSkeleton, deepSuggestTopics, editScript } from '../services/gemini-service.js';
 import { buildGapMatrix, buildYadamGapMatrix, getEconomyTrendAnalysis, getCategoryDistribution, getCategoryGroups, getTrends, getTrendsByCategory, getNicheDetailGrid } from '../services/gap-analyzer.js';
@@ -944,6 +945,11 @@ router.get('/sub-category-progress', (req, res) => {
     }
 });
 
+// GET /api/analysis/background-status
+router.get('/background-status', (req, res) => {
+    res.json(getBackgroundStatus());
+});
+
 // POST /api/analysis/classify-sub-categories
 router.post('/classify-sub-categories', async (req, res) => {
     try {
@@ -1066,5 +1072,22 @@ export async function classifySingleVideoSubCategory(videoId, videoTitle, catego
 
     saveDB();
 }
+
+// GET /api/analysis/background-status
+router.get('/background-status', (req, res) => {
+    res.json(getBackgroundStatus());
+});
+
+// POST /api/analysis/background-start
+router.post('/background-start', (req, res) => {
+    startBackgroundWorker();
+    res.json({ ok: true, status: getBackgroundStatus() });
+});
+
+// POST /api/analysis/background-stop
+router.post('/background-stop', (req, res) => {
+    stopBackgroundWorker();
+    res.json({ ok: true, status: getBackgroundStatus() });
+});
 
 export default router;
