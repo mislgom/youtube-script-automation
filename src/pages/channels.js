@@ -3,7 +3,8 @@ import { showToast, showModal } from '../components/toast.js';
 
 let currentFolder = 'all';
 const FIXED_CATEGORIES = ['야담', '경제', '심리학'];
-const activePolls = new Map(); // Track intervals globally in this module
+const activePolls = new Map();
+let isFetchAllRunning = false;
 
 export async function renderChannels(container, { api, navigate }) {
   container.innerHTML = `
@@ -15,12 +16,7 @@ export async function renderChannels(container, { api, navigate }) {
           <option value="asc">구독자 적은 순</option>
         </select>
 
-        <div style="display:flex; flex-direction:column; gap:6px; align-items:stretch;">
-          <button class="btn btn-secondary" id="fetch-all-btn" style="height:44px; padding:0 20px; font-size:0.95rem;">🔄 모든 채널 수집</button>
-          <button class="btn btn-danger" id="stop-all-fetch-btn" style="height:34px; padding:0 12px; font-size:0.82rem; opacity:0.5; cursor:not-allowed; display:none;" disabled>
-            ⏹ 수집 중지
-          </button>
-        </div>
+        <button class="btn btn-secondary" id="fetch-all-btn" style="height:44px; padding:0 20px; font-size:0.95rem; align-self:flex-start;">🔄 모든 채널 수집</button>
 
         <button class="btn btn-accent" id="auto-categorize-btn" style="height:44px; padding:0 20px; font-size:0.95rem; background:linear-gradient(135deg, #6e8efb, #a777e3); border:none; align-self:flex-start;">🪄 AI 자동 분류</button>
         <button class="btn btn-primary" id="add-channel-btn" style="height:44px; padding:0 20px; font-size:0.95rem; align-self:flex-start;">+ 채널 추가</button>
@@ -37,82 +33,30 @@ export async function renderChannels(container, { api, navigate }) {
 
   document.getElementById('add-channel-btn').addEventListener('click', () => showAddChannelModal(api));
 
-  document.getElementById('stop-all-fetch-btn').addEventListener('click', async () => {
-    const btn = document.getElementById('stop-all-fetch-btn');
-    btn.disabled = true;
-    btn.style.opacity = '0.6';
-    btn.innerHTML = '<span class="loading-spinner-sm"></span> 중단 중...';
-
-    const channels = await api.getChannels();
-
-    // Hard stop for all active loops in this window
-    for (const [chId, interval] of activePolls.entries()) {
-      clearInterval(interval);
-      activePolls.delete(chId);
-
-      const progressArea = document.getElementById(`progress-${chId}`);
-      const fetchBtn = document.querySelector(`.fetch-btn[data-id="${chId}"]`);
-      if (progressArea) {
-        progressArea.querySelector('.progress-text').textContent = '⏹ 중단됨';
-        progressArea.querySelector('.fill').style.background = '#888';
-      }
-      if (fetchBtn) {
-        fetchBtn.disabled = false;
-        fetchBtn.textContent = '🔄 영상 수집';
-      }
-    }
-
-    // Call server to cancel long-running fetch processes
-    for (const ch of channels) {
-      try { await api.cancelFetch(ch.id); } catch (e) { }
-    }
-
-    showToast('모든 수집이 즉시 중단되었습니다.', 'info');
-
-    const fetchAllBtn = document.getElementById('fetch-all-btn');
-    if (fetchAllBtn) {
-      fetchAllBtn.disabled = false;
-      fetchAllBtn.textContent = '🔄 모든 채널 수집';
-    }
-
-    btn.textContent = '⏹ 수집 중지';
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
-    btn.style.cursor = 'not-allowed';
-    btn.style.display = 'none';
-  });
-
   document.getElementById('fetch-all-btn').addEventListener('click', async () => {
-    const channels = await api.getChannels();
-    if (channels.length === 0) {
-      showToast('수집할 채널이 없습니다.', 'warning');
+    if (isFetchAllRunning) {
+      stopAllFetch(api);
       return;
     }
 
-    const fetchAllBtn = document.getElementById('fetch-all-btn');
-    const stopBtn = document.getElementById('stop-all-fetch-btn');
+    const channels = await api.getChannels();
+    const toFetch = channels.filter(ch => ch.is_active !== 0);
+    if (toFetch.length === 0) { showToast('수집할 채널이 없습니다.', 'warning'); return; }
 
-    fetchAllBtn.disabled = true;
-    fetchAllBtn.textContent = '⏳ 일괄 수집 중...';
+    isFetchAllRunning = true;
+    const btn = document.getElementById('fetch-all-btn');
+    btn.textContent = '⏹ 모든 수집 정지';
+    btn.className = 'btn btn-danger';
+    btn.style.cssText = 'height:44px; padding:0 20px; font-size:0.95rem; align-self:flex-start;';
 
-    if (stopBtn) {
-      stopBtn.disabled = false;
-      stopBtn.style.opacity = '1';
-      stopBtn.style.cursor = 'pointer';
-      stopBtn.style.display = 'flex';
-    }
+    showToast(`${toFetch.length}개 채널 동시 수집을 시작합니다.`, 'info');
 
-    // Trigger fetch for all channels
-    for (const ch of channels) {
-      if (ch.is_active === 0) {
-        console.log(`[수집 건너뛰기] ${ch.name} (수집 중지 상태)`);
-        continue;
-      }
+    // 모든 채널 동시에 수집 시작
+    for (const ch of toFetch) {
       startFetch(api, ch.id, activePolls);
     }
-
-    showToast(`${channels.length}개 채널의 수집을 시작했습니다.`, 'info');
   });
+
   document.getElementById('auto-categorize-btn').addEventListener('click', async () => {
     const btn = document.getElementById('auto-categorize-btn');
     btn.disabled = true;
@@ -137,6 +81,44 @@ export async function renderChannels(container, { api, navigate }) {
   await loadChannels(api, navigate);
 }
 
+function stopAllFetch(api) {
+  isFetchAllRunning = false;
+
+  for (const [chId, interval] of activePolls.entries()) {
+    clearInterval(interval);
+    activePolls.delete(chId);
+    api.cancelFetch(chId).catch(() => {});
+  }
+
+  resetFetchAllBtn();
+  showToast('모든 수집이 중단되었습니다.', 'info');
+}
+
+function resetFetchAllBtn() {
+  const btn = document.getElementById('fetch-all-btn');
+  if (btn) {
+    btn.textContent = '🔄 모든 채널 수집';
+    btn.className = 'btn btn-secondary';
+    btn.style.cssText = 'height:44px; padding:0 20px; font-size:0.95rem; align-self:flex-start;';
+    btn.disabled = false;
+  }
+}
+
+function updateChannelCount(channelId) {
+  fetch('/api/channels/' + channelId)
+    .then(r => r.json())
+    .then(ch => {
+      if (ch && ch.collected_count !== undefined) {
+        const cardEl = document.querySelector('.channel-card[data-id="' + channelId + '"]');
+        if (cardEl) {
+          const countEl = cardEl.querySelector('.collected-count');
+          if (countEl) countEl.textContent = ch.collected_count + '개';
+        }
+      }
+    })
+    .catch(() => {});
+}
+
 async function loadChannels(api, navigate) {
   const listEl = document.getElementById('channel-list');
   const folderEl = document.getElementById('folder-filters');
@@ -150,7 +132,6 @@ async function loadChannels(api, navigate) {
       return;
     }
 
-    // Simplified Fixed Category Filters
     const countAll = channels.length;
     const countByTag = {};
     FIXED_CATEGORIES.forEach(cat => {
@@ -164,12 +145,10 @@ async function loadChannels(api, navigate) {
         <div class="tab ${currentFolder === t ? 'active' : ''}" data-tag="${t}" style="cursor:pointer; padding:6px 18px; border-radius:20px; font-weight:800; font-size:1.1rem;">
           ${t} (${countByTag[t] || 0})
         </div>
-      `).join('')
-      }
+      `).join('')}
   <div class="tab ${currentFolder === 'unclassified' ? 'active' : ''}" data-tag="unclassified" style="cursor:pointer; padding:6px 18px; border-radius:20px; font-weight:800; font-size:1.1rem; border:1px dashed var(--border);">미분류 (${countUnclassified}) 📁</div>
   `;
 
-    // Category filter clicks
     folderEl.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
         currentFolder = tab.dataset.tag;
@@ -177,14 +156,12 @@ async function loadChannels(api, navigate) {
       });
     });
 
-    // Sort by subscriber count
     channels.sort((a, b) => {
       const subA = a.subscriber_count || 0;
       const subB = b.subscriber_count || 0;
       return sortOrder === 'desc' ? subB - subA : subA - subB;
     });
 
-    // Filter by selected folder
     let filtered = channels;
     if (currentFolder === 'unclassified') {
       filtered = channels.filter(ch => !ch.group_tag);
@@ -198,11 +175,9 @@ async function loadChannels(api, navigate) {
       listEl.innerHTML = `<div class="dashboard-grid"> ${filtered.map(ch => renderChannelCard(ch)).join('')}</div> `;
     }
 
-    // Dashboard buttons
     listEl.querySelectorAll('.dashboard-btn').forEach(btn => {
       btn.addEventListener('click', () => showChannelDashboard(api, btn.dataset.id));
     });
-    // Category change buttons
     listEl.querySelectorAll('.change-group-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -217,20 +192,14 @@ async function loadChannels(api, navigate) {
       });
     });
     listEl.querySelectorAll('.fetch-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.getElementById('stop-all-fetch-btn').style.display = 'block';
-        startFetch(api, btn.dataset.id, activePolls);
-      });
+      btn.addEventListener('click', () => startFetch(api, btn.dataset.id, activePolls));
     });
 
-    // Cancel buttons
     listEl.querySelectorAll('.cancel-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.id;
         try {
           await fetch('/api/youtube/cancel/' + id, { method: 'POST' });
-
-          // UI 즉시 반영
           const progressArea = document.getElementById('progress-' + id);
           if (progressArea) {
             const text = progressArea.querySelector('.progress-text');
@@ -245,7 +214,6 @@ async function loadChannels(api, navigate) {
       });
     });
 
-    // Delete buttons
     listEl.querySelectorAll('.delete-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         showModal('채널 삭제', `<p> "${btn.dataset.name}" 채널과 수집된 모든 영상이 삭제됩니다.</p> `, [{
@@ -318,15 +286,11 @@ function showAddChannelModal(api) {
 
 async function startFetch(api, channelId, activePolls) {
   const progressArea = document.getElementById(`progress-${channelId}`);
-  const stopBtn = document.getElementById('stop-all-fetch-btn');
-  if (stopBtn) {
-    stopBtn.disabled = false;
-    stopBtn.style.opacity = '1';
-    stopBtn.style.cursor = 'pointer';
-    stopBtn.style.display = 'flex';
-  }
   const btn = document.querySelector(`.fetch-btn[data-id="${channelId}"]`);
   if (!progressArea || !btn) return;
+
+  // 호출 시점의 batch 모드 여부를 캡처
+  const inBatch = isFetchAllRunning;
 
   btn.disabled = true;
   btn.textContent = '수집 중...';
@@ -336,33 +300,25 @@ async function startFetch(api, channelId, activePolls) {
   try {
     await api.fetchChannelVideos(channelId);
 
-    // Cleanup helper
     const finish = () => {
       if (activePolls.has(channelId)) {
         clearInterval(activePolls.get(channelId));
         activePolls.delete(channelId);
       }
-
-      // If no more active polls, reset global button
-      if (activePolls.size === 0) {
-        const fetchAllBtn = document.getElementById('fetch-all-btn');
-        const stopBtn = document.getElementById('stop-all-fetch-btn');
-        if (fetchAllBtn) {
-          fetchAllBtn.disabled = false;
-          fetchAllBtn.textContent = '🔄 모든 채널 수집';
-        }
-        if (stopBtn) stopBtn.style.display = 'none';
+      // 배치 모드에서 마지막 채널이 완료되면 버튼 복원 + 새로고침
+      if (inBatch && activePolls.size === 0) {
+        isFetchAllRunning = false;
+        resetFetchAllBtn();
+        loadChannels(api);
+        showToast('모든 채널 수집이 완료되었습니다.', 'success');
       }
     };
 
-    // Poll status
     const poll = setInterval(async () => {
       try {
         const status = await api.getFetchStatus(channelId);
-
         if (!status || !status.status) return;
 
-        // progress-area 요소 매번 다시 찾기 (DOM 갱신 대비)
         const progressArea = document.getElementById('progress-' + channelId);
         if (!progressArea) return;
 
@@ -378,8 +334,9 @@ async function startFetch(api, channelId, activePolls) {
           btn.disabled = false;
           btn.textContent = '🔄 영상 수집';
           showToast(`${status.completedCount || status.total}개 영상 수집 완료!`, 'success');
+          updateChannelCount(channelId);
           finish();
-          loadChannels(api, navigate);
+          if (!inBatch) loadChannels(api, navigate);
           return;
         }
 
@@ -390,6 +347,7 @@ async function startFetch(api, channelId, activePolls) {
           btn.disabled = false;
           btn.textContent = '🔄 영상 수집';
           showToast('수집 중 오류 발생', 'error');
+          updateChannelCount(channelId);
           finish();
           return;
         }
@@ -400,8 +358,9 @@ async function startFetch(api, channelId, activePolls) {
           text.textContent = '⏹ 중단됨 (' + (status.completedCount || status.progress) + '개 수집 완료)';
           btn.disabled = false;
           btn.textContent = '🔄 영상 수집';
+          updateChannelCount(channelId);
           finish();
-          loadChannels(api, navigate);
+          if (!inBatch) loadChannels(api, navigate);
           return;
         }
 
@@ -410,29 +369,18 @@ async function startFetch(api, channelId, activePolls) {
           text.textContent = '✅ 수집 완료';
           btn.disabled = false;
           btn.textContent = '🔄 영상 수집';
+          updateChannelCount(channelId);
           finish();
-          loadChannels(api, navigate);
+          if (!inBatch) loadChannels(api, navigate);
           return;
         }
 
-        // 진행 중 (processing, fetching_list 등)
+        // 진행 중
         if (status.total > 0) {
           const pct = Math.round((status.progress / status.total) * 100);
           fill.style.width = pct + '%';
           text.textContent = status.progress + '/' + status.total + '개 처리 중 (' + pct + '%)';
-
-          // 수집된 영상 카운터 실시간 업데이트
-          const cardEl = document.querySelector('.channel-card[data-id="' + channelId + '"]');
-          if (cardEl) {
-            const countEl = cardEl.querySelector('.collected-count');
-            if (countEl) {
-              fetch('/api/channels/' + channelId).then(r => r.json()).then(ch => {
-                if (ch && ch.collected_count !== undefined) {
-                  countEl.textContent = ch.collected_count + '개';
-                }
-              }).catch(() => {});
-            }
-          }
+          updateChannelCount(channelId);
         } else {
           text.textContent = '영상 목록 가져오는 중...';
         }
@@ -450,7 +398,7 @@ async function startFetch(api, channelId, activePolls) {
   }
 }
 
-function renderChannelCard(ch, allTags = []) {
+function renderChannelCard(ch) {
   const lastFetchedStr = ch.last_fetched ? new Date(ch.last_fetched).toLocaleDateString('ko', { year: 'numeric', month: 'long', day: 'numeric' }) : '아직 수집 안 됨';
   const subCountStr = (ch.subscriber_count || 0).toLocaleString();
   const handle = ch.handle ? ch.handle.replace('@', '') : '';
@@ -502,9 +450,6 @@ function renderChannelCard(ch, allTags = []) {
   `;
 }
 
-/**
- * v4: Show categorized dashboard for a specific channel
- */
 async function showChannelDashboard(api, id) {
   showModal('채널 분석 대시보드', `
     <div id="dashboard-content" class="flex-center" style="min-height:300px; display:flex; flex-direction:column; gap:16px;">
@@ -534,19 +479,19 @@ async function showChannelDashboard(api, id) {
           <div style="font-size:1.1rem; color:var(--text-secondary); font-weight:600;">총 ${data.total_videos}개의 영상이 테마별로 분류되었습니다.</div>
         </div>
       </div>
-      
+
       <div class="dashboard-groups" style="display:grid; grid-template-columns:1fr; gap:20px;">
         ${data.structure.map(group => `
           <div class="group-section" style="border:2px solid var(--border); border-radius:20px; padding:24px; background:rgba(255,255,255,0.02);">
             <h4 style="margin-top:0; margin-bottom:20px; color:var(--accent-light); display:flex; align-items:center; gap:10px; font-size:1.4rem; font-weight:900;">
-              📂 ${group.group} 
+              📂 ${group.group}
               <span style="font-size:1rem; font-weight:600; color:var(--text-muted);">(미분류 ${group.uncategorized}개)</span>
             </h4>
             <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:16px;">
               ${group.categories.map(cat => `
-                <div class="category-folder-item" 
+                <div class="category-folder-item"
                      style="background:var(--bg-secondary); border:2px solid var(--border); border-radius:12px; padding:16px; cursor:pointer; transition:all 0.2s;"
-                     onmouseover="this.style.borderColor='var(--accent)';" 
+                     onmouseover="this.style.borderColor='var(--accent)';"
                      onmouseout="this.style.borderColor='var(--border)';"
                      onclick="const list = this.querySelector('.folder-video-list'); list.classList.toggle('hidden');">
                   <div class="flex-between" style="align-items:center;">
@@ -576,9 +521,6 @@ async function showChannelDashboard(api, id) {
   }
 }
 
-/**
- * v4: Category selection modal for quick sorting
- */
 function showCategorySelectionModal(api, id, currentTag, onSelect) {
   const presets = FIXED_CATEGORIES;
 
@@ -599,7 +541,6 @@ function showCategorySelectionModal(api, id, currentTag, onSelect) {
     </div>
   `, []);
 
-  // Preset button clicks
   document.querySelectorAll('.preset-tag-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       onSelect(btn.dataset.val);
@@ -608,7 +549,6 @@ function showCategorySelectionModal(api, id, currentTag, onSelect) {
     });
   });
 
-  // Custom input save
   document.getElementById('custom-tag-save-btn').addEventListener('click', () => {
     const val = document.getElementById('custom-tag-input').value.trim();
     onSelect(val);
