@@ -63,17 +63,18 @@ export function resetClient() {
 
 export async function callGemini(prompt, options = {}) {
     const { jsonMode = false, useGoogleSearch = false } = options;
+
+    // Cloud Run 중계 서버 URL 먼저 확인 (gemini_api_key 없어도 사용 가능)
+    const cloudRunRow = queryOne("SELECT value FROM settings WHERE key = 'cloud_run_url'");
+    const cloudRunUrl = cloudRunRow?.value?.trim();
+
     const auth = await getClient();
-    if (!auth) return null;
+    if (!auth && !cloudRunUrl) return null;
 
     const projectIdRow = queryOne("SELECT value FROM settings WHERE key = 'google_project_id'");
     const locationRow = queryOne("SELECT value FROM settings WHERE key = 'google_location'");
     const projectId = projectIdRow?.value?.trim();
     const location = locationRow?.value?.trim() || 'us-central1';
-
-    // Cloud Run 중계 서버 URL 확인
-    const cloudRunRow = queryOne("SELECT value FROM settings WHERE key = 'cloud_run_url'");
-    const cloudRunUrl = cloudRunRow?.value?.trim();
 
     const MAX_RETRIES = 3;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -126,7 +127,7 @@ export async function callGemini(prompt, options = {}) {
             }
 
             // CASE 1: Vertex AI with Bearer Token (AQ.A...)
-            if (auth.type === 'vertex_token' && projectId) {
+            if (auth && auth.type === 'vertex_token' && projectId) {
                 const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:streamGenerateContent`;
                 console.log(`[AI Request] Vertex AI (Bearer): ${modelName}, Project: ${projectId}`);
 
@@ -208,7 +209,7 @@ export async function callGemini(prompt, options = {}) {
             }
 
             // CASE 3: Standard AI Studio (AIza...) via REST
-            if (auth.type === 'api_key') {
+            if (auth && auth.type === 'api_key') {
                 const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${auth.apiKey}`;
                 logToFile(`[AI Request] AI Studio REST: ${modelName}`);
 
