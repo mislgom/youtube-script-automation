@@ -3,9 +3,266 @@ import { showToast, showModal } from '../components/toast.js';
 
 let currentFolder = 'all';
 const FIXED_CATEGORIES = ['야담', '경제', '심리학'];
-const activePolls = new Map();
-let isFetchAllRunning = false;
 
+// ─── Batch state ───────────────────────────────────────────────────────────
+const MAX_CONCURRENT = 5;
+let pendingQueue = [];       // 대기 중인 채널 ID 배열
+let activeJobs = new Map();  // channelId -> pollInterval (시작 중이면 null)
+let isFetchAllRunning = false;
+const LS_KEY = 'channelFetchState';
+
+// ─── localStorage helpers ──────────────────────────────────────────────────
+function saveFetchState() {
+  if (!isFetchAllRunning) return;
+  localStorage.setItem(LS_KEY, JSON.stringify({
+    active: [...activeJobs.keys()],
+    pending: [...pendingQueue],
+    startedAt: Date.now(),
+  }));
+}
+
+function clearFetchState() {
+  localStorage.removeItem(LS_KEY);
+}
+
+// ─── Button helpers ────────────────────────────────────────────────────────
+function resetFetchAllBtn() {
+  const btn = document.getElementById('fetch-all-btn');
+  if (!btn) return;
+  btn.textContent = '🔄 모든 채널 수집';
+  btn.className = 'btn btn-secondary';
+  btn.style.cssText = 'height:44px; padding:0 20px; font-size:0.95rem; align-self:flex-start;';
+  btn.disabled = false;
+}
+
+function setBatchRunningBtn() {
+  const btn = document.getElementById('fetch-all-btn');
+  if (!btn) return;
+  btn.textContent = '⏹ 모든 수집 정지';
+  btn.className = 'btn btn-danger';
+  btn.style.cssText = 'height:44px; padding:0 20px; font-size:0.95rem; align-self:flex-start;';
+}
+
+function updateChannelCount(channelId) {
+  fetch('/api/channels/' + channelId)
+    .then(r => r.json())
+    .then(ch => {
+      if (ch?.collected_count !== undefined) {
+        const cardEl = document.querySelector(`.channel-card[data-id="${channelId}"]`);
+        if (cardEl) {
+          const countEl = cardEl.querySelector('.collected-count');
+          if (countEl) countEl.textContent = ch.collected_count + '개';
+        }
+      }
+    })
+    .catch(() => {});
+}
+
+// ─── Batch orchestration ───────────────────────────────────────────────────
+function startBatchCollection(api, channelIds) {
+  pendingQueue = [...channelIds];
+  saveFetchState();
+  fillSlots(api);
+}
+
+function fillSlots(api) {
+  while (activeJobs.size < MAX_CONCURRENT && pendingQueue.length > 0) {
+    const id = pendingQueue.shift();
+    startSingleCollection(api, id, false);
+    saveFetchState();
+  }
+}
+
+function onChannelDone(api, channelId) {
+  saveFetchState();
+  fillSlots(api);
+  if (activeJobs.size === 0 && pendingQueue.length === 0 && isFetchAllRunning) {
+    isFetchAllRunning = false;
+    clearFetchState();
+    resetFetchAllBtn();
+    loadChannels(api);
+    showToast('모든 채널 수집이 완료되었습니다.', 'success');
+  }
+}
+
+function stopAllFetch(api) {
+  isFetchAllRunning = false;
+  pendingQueue = [];
+  for (const [chId, interval] of activeJobs.entries()) {
+    if (interval) clearInterval(interval);
+    api.cancelFetch(chId).catch(() => {});
+  }
+  activeJobs.clear();
+  clearFetchState();
+  resetFetchAllBtn();
+  showToast('모든 수집이 중단되었습니다.', 'info');
+}
+
+// ─── Single channel collection ─────────────────────────────────────────────
+async function startSingleCollection(api, channelId, isRestore) {
+  // 슬롯 즉시 점유 (fillSlots 중복 방지)
+  activeJobs.set(channelId, null);
+
+  const progressArea = document.getElementById(`progress-${channelId}`);
+  const btn = document.querySelector(`.fetch-btn[data-id="${channelId}"]`);
+
+  if (progressArea && btn) {
+    btn.disabled = true;
+    btn.textContent = '수집 중...';
+    progressArea.style.display = 'block';
+    progressArea.querySelector('.fill').style.background = 'linear-gradient(90deg, #4f46e5, #a855f7)';
+  }
+
+  if (!isRestore) {
+    try {
+      await api.fetchChannelVideos(channelId);
+    } catch (e) {
+      const msg = e.message || '';
+      const alreadyRunning = msg.includes('이미') || msg.includes('already') || msg.includes('queue');
+      if (!alreadyRunning) {
+        showToast('수집 시작 실패: ' + msg, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '🔄 영상 수집'; }
+        activeJobs.delete(channelId);
+        if (isFetchAllRunning) onChannelDone(api, channelId);
+        return;
+      }
+      // 이미 실행 중이면 폴링만 재연결
+      console.log('이미 수집 중 (폴링 재연결):', channelId, msg);
+    }
+  }
+
+  const inBatch = isFetchAllRunning;
+
+  const poll = setInterval(async () => {
+    try {
+      const status = await api.getFetchStatus(channelId);
+      if (!status?.status) return;
+
+      const areaEl = document.getElementById('progress-' + channelId);
+      if (!areaEl) return;
+      const fill = areaEl.querySelector('.fill');
+      const text = areaEl.querySelector('.progress-text');
+      if (!fill || !text) return;
+      areaEl.style.display = 'block';
+
+      const btnEl = document.querySelector(`.fetch-btn[data-id="${channelId}"]`);
+
+      const finishPoll = () => {
+        clearInterval(poll);
+        activeJobs.delete(channelId);
+        updateChannelCount(channelId);
+        if (inBatch) {
+          onChannelDone(api, channelId);
+        } else {
+          loadChannels(api);
+        }
+      };
+
+      if (status.status === 'complete') {
+        fill.style.width = '100%';
+        text.textContent = '✅ 수집 완료 (' + (status.completedCount || status.total) + '개)';
+        if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🔄 영상 수집'; }
+        showToast(`${status.completedCount || status.total}개 영상 수집 완료!`, 'success');
+        finishPoll();
+        return;
+      }
+
+      if (status.status === 'error') {
+        fill.style.width = '100%';
+        fill.style.background = '#ef4444';
+        text.textContent = '❌ 오류 발생';
+        if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🔄 영상 수집'; }
+        showToast('수집 중 오류 발생', 'error');
+        finishPoll();
+        return;
+      }
+
+      if (status.status === 'cancelled') {
+        fill.style.width = '100%';
+        fill.style.background = '#f59e0b';
+        text.textContent = '⏹ 중단됨 (' + (status.completedCount || status.progress) + '개 수집 완료)';
+        if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🔄 영상 수집'; }
+        finishPoll();
+        return;
+      }
+
+      if (status.status === 'idle') {
+        fill.style.width = '100%';
+        text.textContent = '✅ 수집 완료';
+        if (btnEl) { btnEl.disabled = false; btnEl.textContent = '🔄 영상 수집'; }
+        finishPoll();
+        return;
+      }
+
+      // 진행 중
+      if (status.total > 0) {
+        const pct = Math.round((status.progress / status.total) * 100);
+        fill.style.width = pct + '%';
+        text.textContent = status.progress + '/' + status.total + '개 처리 중 (' + pct + '%)';
+        updateChannelCount(channelId);
+      } else {
+        text.textContent = '영상 목록 가져오는 중...';
+      }
+    } catch (e) {
+      console.error('폴링 오류:', e);
+    }
+  }, 2000);
+
+  activeJobs.set(channelId, poll);
+}
+
+// ─── State restoration (페이지 새로고침 후 복원) ───────────────────────────
+async function restoreFetchState(api) {
+  const saved = localStorage.getItem(LS_KEY);
+  if (!saved) return;
+
+  try {
+    const state = JSON.parse(saved);
+    // 30분 이상 지난 상태는 무시
+    if (Date.now() - state.startedAt > 30 * 60 * 1000) {
+      clearFetchState();
+      return;
+    }
+
+    const activeIds = state.active || [];
+    const pendingIds = state.pending || [];
+    if (activeIds.length === 0 && pendingIds.length === 0) {
+      clearFetchState();
+      return;
+    }
+
+    showToast('이전 수집 작업을 복원합니다...', 'info');
+    isFetchAllRunning = true;
+    setBatchRunningBtn();
+    pendingQueue = [...pendingIds];
+
+    const TERMINAL = ['complete', 'error', 'cancelled', 'idle'];
+    const results = await Promise.allSettled(
+      activeIds.map(chId =>
+        api.getFetchStatus(chId).then(s => ({ chId, isRunning: !TERMINAL.includes(s?.status) }))
+      )
+    );
+
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value.isRunning) {
+        startSingleCollection(api, r.value.chId, true);
+      }
+    }
+
+    fillSlots(api);
+
+    if (activeJobs.size === 0 && pendingQueue.length === 0) {
+      isFetchAllRunning = false;
+      clearFetchState();
+      resetFetchAllBtn();
+    }
+  } catch (e) {
+    console.error('fetchState 복원 실패:', e);
+    clearFetchState();
+  }
+}
+
+// ─── Page render ───────────────────────────────────────────────────────────
 export async function renderChannels(container, { api, navigate }) {
   container.innerHTML = `
     <div class="page-header flex-between" style="margin-bottom:10px;">
@@ -43,18 +300,20 @@ export async function renderChannels(container, { api, navigate }) {
     const toFetch = channels.filter(ch => ch.is_active !== 0);
     if (toFetch.length === 0) { showToast('수집할 채널이 없습니다.', 'warning'); return; }
 
-    isFetchAllRunning = true;
-    const btn = document.getElementById('fetch-all-btn');
-    btn.textContent = '⏹ 모든 수집 정지';
-    btn.className = 'btn btn-danger';
-    btn.style.cssText = 'height:44px; padding:0 20px; font-size:0.95rem; align-self:flex-start;';
-
-    showToast(`${toFetch.length}개 채널 동시 수집을 시작합니다.`, 'info');
-
-    // 모든 채널 동시에 수집 시작
-    for (const ch of toFetch) {
-      startFetch(api, ch.id, activePolls);
+    // 기존 진행 중인 작업 먼저 정리 후 1초 대기
+    if (activeJobs.size > 0) {
+      for (const [chId, interval] of activeJobs.entries()) {
+        if (interval) clearInterval(interval);
+        activeJobs.delete(chId);
+        api.cancelFetch(chId).catch(() => {});
+      }
+      await new Promise(r => setTimeout(r, 1000));
     }
+
+    isFetchAllRunning = true;
+    setBatchRunningBtn();
+    showToast(`${toFetch.length}개 채널 수집 시작 (동시 최대 ${MAX_CONCURRENT}개)`, 'info');
+    startBatchCollection(api, toFetch.map(ch => ch.id));
   });
 
   document.getElementById('auto-categorize-btn').addEventListener('click', async () => {
@@ -66,7 +325,7 @@ export async function renderChannels(container, { api, navigate }) {
     try {
       const res = await api.autoCategorizeAllChannels();
       showToast(`분류 완료! ${res.count}개의 채널이 자동으로 배치되었습니다.`, 'success');
-      loadChannels(api, navigate);
+      loadChannels(api);
     } catch (err) {
       showToast('AI 분류 중 오류 발생: ' + err.message, 'error');
     } finally {
@@ -75,51 +334,16 @@ export async function renderChannels(container, { api, navigate }) {
     }
   });
 
-  const sortEl = document.getElementById('channel-sort');
-  sortEl.addEventListener('change', () => loadChannels(api, navigate));
+  document.getElementById('channel-sort').addEventListener('change', () => loadChannels(api));
 
-  await loadChannels(api, navigate);
+  await loadChannels(api);
+
+  // 페이지 진입 시 localStorage에서 이전 수집 상태 복원
+  restoreFetchState(api);
 }
 
-function stopAllFetch(api) {
-  isFetchAllRunning = false;
-
-  for (const [chId, interval] of activePolls.entries()) {
-    clearInterval(interval);
-    activePolls.delete(chId);
-    api.cancelFetch(chId).catch(() => {});
-  }
-
-  resetFetchAllBtn();
-  showToast('모든 수집이 중단되었습니다.', 'info');
-}
-
-function resetFetchAllBtn() {
-  const btn = document.getElementById('fetch-all-btn');
-  if (btn) {
-    btn.textContent = '🔄 모든 채널 수집';
-    btn.className = 'btn btn-secondary';
-    btn.style.cssText = 'height:44px; padding:0 20px; font-size:0.95rem; align-self:flex-start;';
-    btn.disabled = false;
-  }
-}
-
-function updateChannelCount(channelId) {
-  fetch('/api/channels/' + channelId)
-    .then(r => r.json())
-    .then(ch => {
-      if (ch && ch.collected_count !== undefined) {
-        const cardEl = document.querySelector('.channel-card[data-id="' + channelId + '"]');
-        if (cardEl) {
-          const countEl = cardEl.querySelector('.collected-count');
-          if (countEl) countEl.textContent = ch.collected_count + '개';
-        }
-      }
-    })
-    .catch(() => {});
-}
-
-async function loadChannels(api, navigate) {
+// ─── Channel list ──────────────────────────────────────────────────────────
+async function loadChannels(api) {
   const listEl = document.getElementById('channel-list');
   const folderEl = document.getElementById('folder-filters');
   const sortOrder = document.getElementById('channel-sort')?.value || 'desc';
@@ -152,7 +376,7 @@ async function loadChannels(api, navigate) {
     folderEl.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
         currentFolder = tab.dataset.tag;
-        loadChannels(api, navigate);
+        loadChannels(api);
       });
     });
 
@@ -185,19 +409,25 @@ async function loadChannels(api, navigate) {
           api.updateChannelGroup(btn.dataset.id, newTag)
             .then(() => {
               showToast('폴더 이동 완료!', 'success');
-              loadChannels(api, navigate);
+              loadChannels(api);
             })
             .catch(err => showToast(err.message, 'error'));
         });
       });
     });
     listEl.querySelectorAll('.fetch-btn').forEach(btn => {
-      btn.addEventListener('click', () => startFetch(api, btn.dataset.id, activePolls));
+      btn.addEventListener('click', () => startSingleCollection(api, btn.dataset.id, false));
     });
 
     listEl.querySelectorAll('.cancel-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.id;
+        // 폴링 인터벌 정리
+        if (activeJobs.has(id)) {
+          const interval = activeJobs.get(id);
+          if (interval) clearInterval(interval);
+          activeJobs.delete(id);
+        }
         try {
           await fetch('/api/youtube/cancel/' + id, { method: 'POST' });
           const progressArea = document.getElementById('progress-' + id);
@@ -221,7 +451,7 @@ async function loadChannels(api, navigate) {
           onClick: async () => {
             await api.deleteChannel(btn.dataset.id);
             showToast('채널이 삭제되었습니다.', 'success');
-            loadChannels(api, navigate);
+            loadChannels(api);
           }
         }]);
       });
@@ -231,6 +461,7 @@ async function loadChannels(api, navigate) {
   }
 }
 
+// ─── Modals ────────────────────────────────────────────────────────────────
 function showAddChannelModal(api) {
   showModal('채널 추가', `
     <div class="input-group">
@@ -282,120 +513,6 @@ function showAddChannelModal(api) {
       preview.innerHTML = `<div style="color:var(--danger);font-size:0.85rem;">❌ ${e.message}</div> `;
     }
   });
-}
-
-async function startFetch(api, channelId, activePolls) {
-  const progressArea = document.getElementById(`progress-${channelId}`);
-  const btn = document.querySelector(`.fetch-btn[data-id="${channelId}"]`);
-  if (!progressArea || !btn) return;
-
-  // 호출 시점의 batch 모드 여부를 캡처
-  const inBatch = isFetchAllRunning;
-
-  btn.disabled = true;
-  btn.textContent = '수집 중...';
-  progressArea.style.display = 'block';
-  progressArea.querySelector('.fill').style.background = 'linear-gradient(90deg, #4f46e5, #a855f7)';
-
-  try {
-    await api.fetchChannelVideos(channelId);
-
-    const finish = () => {
-      if (activePolls.has(channelId)) {
-        clearInterval(activePolls.get(channelId));
-        activePolls.delete(channelId);
-      }
-      // 배치 모드에서 마지막 채널이 완료되면 버튼 복원 + 새로고침
-      if (inBatch && activePolls.size === 0) {
-        isFetchAllRunning = false;
-        resetFetchAllBtn();
-        loadChannels(api);
-        showToast('모든 채널 수집이 완료되었습니다.', 'success');
-      }
-    };
-
-    const poll = setInterval(async () => {
-      try {
-        const status = await api.getFetchStatus(channelId);
-        if (!status || !status.status) return;
-
-        const progressArea = document.getElementById('progress-' + channelId);
-        if (!progressArea) return;
-
-        const fill = progressArea.querySelector('.fill');
-        const text = progressArea.querySelector('.progress-text');
-        if (!fill || !text) return;
-
-        progressArea.style.display = 'block';
-
-        if (status.status === 'complete') {
-          fill.style.width = '100%';
-          text.textContent = '✅ 수집 완료 (' + (status.completedCount || status.total) + '개)';
-          btn.disabled = false;
-          btn.textContent = '🔄 영상 수집';
-          showToast(`${status.completedCount || status.total}개 영상 수집 완료!`, 'success');
-          updateChannelCount(channelId);
-          finish();
-          if (!inBatch) loadChannels(api);
-          return;
-        }
-
-        if (status.status === 'error') {
-          fill.style.width = '100%';
-          fill.style.background = '#ef4444';
-          text.textContent = '❌ 오류 발생';
-          btn.disabled = false;
-          btn.textContent = '🔄 영상 수집';
-          showToast('수집 중 오류 발생', 'error');
-          updateChannelCount(channelId);
-          finish();
-          return;
-        }
-
-        if (status.status === 'cancelled') {
-          fill.style.width = '100%';
-          fill.style.background = '#f59e0b';
-          text.textContent = '⏹ 중단됨 (' + (status.completedCount || status.progress) + '개 수집 완료)';
-          btn.disabled = false;
-          btn.textContent = '🔄 영상 수집';
-          updateChannelCount(channelId);
-          finish();
-          if (!inBatch) loadChannels(api);
-          return;
-        }
-
-        if (status.status === 'idle') {
-          fill.style.width = '100%';
-          text.textContent = '✅ 수집 완료';
-          btn.disabled = false;
-          btn.textContent = '🔄 영상 수집';
-          updateChannelCount(channelId);
-          finish();
-          if (!inBatch) loadChannels(api);
-          return;
-        }
-
-        // 진행 중
-        if (status.total > 0) {
-          const pct = Math.round((status.progress / status.total) * 100);
-          fill.style.width = pct + '%';
-          text.textContent = status.progress + '/' + status.total + '개 처리 중 (' + pct + '%)';
-          updateChannelCount(channelId);
-        } else {
-          text.textContent = '영상 목록 가져오는 중...';
-        }
-      } catch (e) {
-        console.error('폴링 오류:', e);
-      }
-    }, 2000);
-
-    activePolls.set(channelId, poll);
-
-  } catch (e) {
-    showToast('수집 시작 실패: ' + e.message, 'error');
-    btn.disabled = false;
-    btn.textContent = '🔄 영상 수집';
-  }
 }
 
 function renderChannelCard(ch) {
