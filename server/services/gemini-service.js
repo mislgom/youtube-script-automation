@@ -71,6 +71,8 @@ export async function callGemini(prompt, options = {}) {
     const projectId = projectIdRow?.value?.trim();
     const location = locationRow?.value?.trim() || 'us-central1';
 
+    const MAX_RETRIES = 3;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     let timer;
     try {
         const timeoutPromise = new Promise((_, reject) => {
@@ -213,6 +215,14 @@ export async function callGemini(prompt, options = {}) {
         return text;
     } catch (err) {
         if (timer) clearTimeout(timer);
+
+        // 429 재시도 (최대 3회, 10초 대기)
+        if ((err.message?.includes('429') || err.message?.includes('quota') || err.message?.includes('RESOURCE_EXHAUSTED')) && attempt < MAX_RETRIES) {
+            console.log(`[AI] 429 감지, 10초 후 재시도 (${attempt + 1}/${MAX_RETRIES})...`);
+            await new Promise(resolve => setTimeout(resolve, 10000));
+            continue;
+        }
+
         console.error(`[AI Error] Gemini API 호출 실패:`, err.message);
         logError(`Gemini Error: ${err.message}`);
 
@@ -243,6 +253,7 @@ export async function callGemini(prompt, options = {}) {
         }
         throw err;
     }
+    } // end retry loop
 }
 
 // Extract keywords from video title + description + transcript

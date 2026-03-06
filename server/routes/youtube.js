@@ -112,8 +112,10 @@ async function processChannel(channel, channelDbId, maxResults, job) {
             job.status = 'processing';
 
             // Check if video already exists
+            console.log(`[DEBUG-EXIST] video_id=${v.video_id}, title=${v.title}`);
             const existing = queryOne('SELECT id FROM videos WHERE video_id = ?', [v.video_id]);
-            if (existing) continue;
+            if (existing) { console.log(`[DEBUG-EXIST] SKIP: ${v.video_id} already exists`); continue; }
+            console.log(`[DEBUG] video_id=${v.video_id}, existing=${!!existing}`);
 
             // Insert video
             const { lastId: videoDbId } = runSQL(
@@ -162,15 +164,18 @@ async function processChannel(channel, channelDbId, maxResults, job) {
 
                 // Categorize
                 const catGroups = queryAll('SELECT DISTINCT group_name FROM categories');
+                console.log(`[DEBUG] catGroups.length=${catGroups.length}`);
                 if (catGroups.length > 0) {
                     const groupsWithItems = catGroups.map(g => ({
                         group_name: g.group_name,
                         items: queryAll('SELECT name FROM categories WHERE group_name = ?', [g.group_name]).map(c => c.name)
                     }));
+                    await new Promise(resolve => setTimeout(resolve, 3000));
                     const catResult = await categorizeVideo(v.title, keywords, groupsWithItems);
                     let finalCategories = {};
                     let economyMetadata = {};
 
+                    console.log(`[DEBUG] catResult=`, typeof catResult, catResult);
                     if (catResult && typeof catResult === 'object') {
                         if (catResult.categories) {
                             finalCategories = catResult.categories;
@@ -193,14 +198,14 @@ async function processChannel(channel, channelDbId, maxResults, job) {
                             }
 
                             if (cat) {
-                                runSQLNoSave('INSERT OR IGNORE INTO video_categories (video_id, category_id, source) VALUES (?, ?, ?)', [videoDbId, cat.id, 'ai']);
+                                runSQL('INSERT OR IGNORE INTO video_categories (video_id, category_id, source) VALUES (?, ?, ?)', [videoDbId, cat.id, 'ai']);
                             }
                         }
 
                         // 2. Keyword-based Fallback (Always run as safety net)
                         const keywordCats = categorizeVideoByKeywords({ title: v.title, description: v.description || '' }, allDBCats);
                         for (const catId of keywordCats) {
-                            runSQLNoSave('INSERT OR IGNORE INTO video_categories (video_id, category_id, source) VALUES (?, ?, ?)', [videoDbId, catId, 'keyword_fallback']);
+                            runSQL('INSERT OR IGNORE INTO video_categories (video_id, category_id, source) VALUES (?, ?, ?)', [videoDbId, catId, 'keyword_fallback']);
                         }
 
                         // 3. Auto sub-category classification for 사건유형 categories

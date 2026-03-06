@@ -989,6 +989,7 @@ ${batch.map((v, idx) => `${idx + 1}. ${v.video_id} | ${v.title}`).join('\n')}
 주의: 반드시 위 세부 카테고리 목록에서만 선택하세요.`;
 
                 try {
+                    await new Promise(resolve => setTimeout(resolve, 3000));
                     const raw = await callGemini(prompt, { jsonMode: true });
                     if (!raw) continue;
                     const jsonStr = raw.replace(/```json|```/g, '').trim();
@@ -1042,6 +1043,7 @@ export async function classifySingleVideoSubCategory(videoId, videoTitle, catego
 주의: 반드시 위 세부 카테고리 목록에서만 선택하세요.`;
 
         try {
+            await new Promise(resolve => setTimeout(resolve, 5000));
             const raw = await callGemini(prompt, { jsonMode: true });
             if (!raw) continue;
             const jsonStr = raw.replace(/```json|```/g, '').trim();
