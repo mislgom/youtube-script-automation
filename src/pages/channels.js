@@ -336,7 +336,7 @@ async function startFetch(api, channelId, activePolls) {
           showToast(`${status.completedCount || status.total}개 영상 수집 완료!`, 'success');
           updateChannelCount(channelId);
           finish();
-          if (!inBatch) loadChannels(api, navigate);
+          if (!inBatch) loadChannels(api);
           return;
         }
 
@@ -360,7 +360,7 @@ async function startFetch(api, channelId, activePolls) {
           btn.textContent = '🔄 영상 수집';
           updateChannelCount(channelId);
           finish();
-          if (!inBatch) loadChannels(api, navigate);
+          if (!inBatch) loadChannels(api);
           return;
         }
 
@@ -371,7 +371,7 @@ async function startFetch(api, channelId, activePolls) {
           btn.textContent = '🔄 영상 수집';
           updateChannelCount(channelId);
           finish();
-          if (!inBatch) loadChannels(api, navigate);
+          if (!inBatch) loadChannels(api);
           return;
         }
 
