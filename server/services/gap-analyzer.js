@@ -733,6 +733,42 @@ export function getNicheDetailGrid(eraId, eventId, sourceId) {
     }
   }
 
+  // 세부 카테고리 그룹 추가 (video_sub_categories + sub_categories)
+  // themeVideoIds(INTEGER) → videos.video_id(TEXT) 변환 후 조회
+  const subCatRows = queryAll(`
+    SELECT sc.parent_category_name, sc.id, sc.name as label, COUNT(DISTINCT vsc.video_id) as cnt
+    FROM video_sub_categories vsc
+    JOIN sub_categories sc ON vsc.sub_category_id = sc.id
+    WHERE vsc.video_id IN (SELECT video_id FROM videos WHERE id IN (${idList}))
+    GROUP BY sc.id
+    ORDER BY sc.parent_category_name, cnt DESC
+  `);
+
+  if (subCatRows.length > 0) {
+    // parent_category_name별로 그룹핑
+    const subCatMap = {};
+    for (const row of subCatRows) {
+      if (!subCatMap[row.parent_category_name]) subCatMap[row.parent_category_name] = [];
+      subCatMap[row.parent_category_name].push(row);
+    }
+
+    for (const [parentName, rows] of Object.entries(subCatMap)) {
+      const groupMax = rows[0].cnt;
+      const cells = rows.map(r => {
+        const ratio = groupMax > 0 ? r.cnt / groupMax : 0;
+        let level = 1;
+        if (ratio >= 0.75) level = 5;
+        else if (ratio >= 0.5) level = 4;
+        else if (ratio >= 0.25) level = 3;
+        else if (ratio >= 0.1) level = 2;
+        return { id: r.id, label: r.label, count: r.cnt, level, isVisible: true };
+      });
+      if (cells.length > 0) {
+        groups.push({ groupName: '세부:' + parentName, cells, groupMax });
+      }
+    }
+  }
+
   return { groups, totalVideos: themeVideoIds.length };
 }
 
