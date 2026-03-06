@@ -223,15 +223,24 @@ async function loadChannels(api, navigate) {
       });
     });
 
-    // Toggle active buttons
-    listEl.querySelectorAll('.toggle-active-btn').forEach(btn => {
+    // Cancel buttons
+    listEl.querySelectorAll('.cancel-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.id;
         try {
-          const res = await fetch(`/api/channels/${id}/toggle-active`, { method: 'PUT' });
-          if (res.ok) loadChannels(api, navigate);
+          await fetch('/api/youtube/cancel/' + id, { method: 'POST' });
+
+          // UI 즉시 반영
+          const progressArea = document.getElementById('progress-' + id);
+          if (progressArea) {
+            const text = progressArea.querySelector('.progress-text');
+            const fill = progressArea.querySelector('.fill');
+            if (text) text.textContent = '⏸️ 중단 요청됨... (현재 영상 처리 완료 후 중단)';
+            if (fill) fill.style.background = 'linear-gradient(90deg, #f59e0b, #ef4444)';
+            progressArea.style.display = 'block';
+          }
         } catch (e) {
-          console.error('수집 상태 변경 실패:', e);
+          console.error('수집 취소 실패:', e);
         }
       });
     });
@@ -350,34 +359,70 @@ async function startFetch(api, channelId, activePolls) {
     const poll = setInterval(async () => {
       try {
         const status = await api.getFetchStatus(channelId);
+
+        if (!status || !status.status) return;
+
+        // progress-area 요소 매번 다시 찾기 (DOM 갱신 대비)
+        const progressArea = document.getElementById('progress-' + channelId);
+        if (!progressArea) return;
+
         const fill = progressArea.querySelector('.fill');
         const text = progressArea.querySelector('.progress-text');
+        if (!fill || !text) return;
+
+        progressArea.style.display = 'block';
 
         if (status.status === 'complete') {
-          finish();
           fill.style.width = '100%';
-          text.textContent = `✅ 완료! ${status.total}개 영상 수집됨`;
+          text.textContent = '✅ 수집 완료 (' + (status.completedCount || status.total) + '개)';
           btn.disabled = false;
           btn.textContent = '🔄 영상 수집';
-          showToast(`${status.total}개 영상 수집 완료!`, 'success');
-        } else if (status.status === 'error') {
+          showToast(`${status.completedCount || status.total}개 영상 수집 완료!`, 'success');
           finish();
-          text.textContent = `❌ 오류: ${status.error} `;
-          btn.disabled = false;
-          btn.textContent = '🔄 영상 수집';
-          showToast('수집 중 오류 발생: ' + status.error, 'error');
-        } else if (status.status === 'cancelled') {
-          finish();
-          text.textContent = '⏹ 중단됨';
-          fill.style.background = '#888';
-          btn.disabled = false;
-          btn.textContent = '🔄 영상 수집';
-        } else if (status.total > 0) {
-          const pct = Math.round((status.progress / status.total) * 100);
-          fill.style.width = `${pct}% `;
-          text.textContent = `${status.progress}/${status.total} 영상 처리 중...`;
+          return;
         }
-      } catch (e) { finish(); }
+
+        if (status.status === 'error') {
+          fill.style.width = '100%';
+          fill.style.background = '#ef4444';
+          text.textContent = '❌ 오류 발생';
+          btn.disabled = false;
+          btn.textContent = '🔄 영상 수집';
+          showToast('수집 중 오류 발생', 'error');
+          finish();
+          return;
+        }
+
+        if (status.status === 'cancelled') {
+          fill.style.width = '100%';
+          fill.style.background = '#f59e0b';
+          text.textContent = '⏹ 중단됨 (' + (status.completedCount || status.progress) + '개 수집 완료)';
+          btn.disabled = false;
+          btn.textContent = '🔄 영상 수집';
+          finish();
+          return;
+        }
+
+        if (status.status === 'idle') {
+          fill.style.width = '100%';
+          text.textContent = '✅ 수집 완료';
+          btn.disabled = false;
+          btn.textContent = '🔄 영상 수집';
+          finish();
+          return;
+        }
+
+        // 진행 중 (processing, fetching_list 등)
+        if (status.total > 0) {
+          const pct = Math.round((status.progress / status.total) * 100);
+          fill.style.width = pct + '%';
+          text.textContent = status.progress + '/' + status.total + '개 처리 중 (' + pct + '%)';
+        } else {
+          text.textContent = '영상 목록 가져오는 중...';
+        }
+      } catch (e) {
+        console.error('폴링 오류:', e);
+      }
     }, 2000);
 
     activePolls.set(channelId, poll);
@@ -398,7 +443,7 @@ function renderChannelCard(ch, allTags = []) {
     : `https://www.youtube.com/channel/${ch.channel_id}`;
 
   return `
-    <div class="channel-card ${ch.is_active === 0 ? 'channel-paused' : ''}" data-id="${ch.id}">
+    <div class="channel-card" data-id="${ch.id}">
         <div class="profile-section">
             <a href="${ytUrl}" target="_blank" rel="noopener noreferrer" title="유튜브 채널로 이동" style="display:contents;">
             ${ch.thumbnail_url
@@ -426,10 +471,8 @@ function renderChannelCard(ch, allTags = []) {
         </div>
         <span class="last-sync">마지막 수집: ${lastFetchedStr}</span>
         <div class="button-group" style="display:flex; gap:6px; align-items:stretch; flex-wrap:nowrap; padding:8px 12px; justify-content:center;">
-            <button class="btn ${ch.is_active === 0 ? 'btn-paused' : 'btn-collect'} fetch-btn" data-id="${ch.id}" ${ch.is_active === 0 ? 'disabled' : ''} style="white-space:nowrap; padding:8px 10px; font-size:13px; border-radius:6px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;">🔄 영상 수집</button>
-            <button class="btn toggle-active-btn" data-id="${ch.id}" style="background:${ch.is_active === 0 ? '#ef4444' : '#f59e0b'}; color:${ch.is_active === 0 ? '#fff' : '#000'}; white-space:nowrap; padding:8px 10px; font-size:13px; border-radius:6px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;">
-              ${ch.is_active === 0 ? '▶️ 재개' : '⏸️ 중지'}
-            </button>
+            <button class="btn btn-collect fetch-btn" data-id="${ch.id}" style="white-space:nowrap; padding:8px 10px; font-size:13px; border-radius:6px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;">🔄 영상 수집</button>
+            <button class="btn btn-warning cancel-btn" data-id="${ch.id}" style="background:#f59e0b; color:#000; white-space:nowrap; padding:8px 10px; font-size:13px; border-radius:6px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;">⏸️ 중지</button>
             <button class="btn btn-stat dashboard-btn" data-id="${ch.id}" style="white-space:nowrap; padding:8px 10px; font-size:13px; border-radius:6px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;">📊</button>
             <button class="btn btn-delete delete-btn" data-id="${ch.id}" data-name="${ch.name}" style="white-space:nowrap; padding:8px 10px; font-size:13px; border-radius:6px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;">삭제</button>
         </div>

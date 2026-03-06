@@ -110,7 +110,13 @@ router.post('/fetch/:channelId', async (req, res) => {
 router.get('/status/:channelId', (req, res) => {
     const job = activeJobs.get(req.params.channelId);
     if (!job) return res.json({ status: 'idle' });
-    res.json(job);
+    res.json({
+        status: job.status,
+        progress: job.progress,
+        total: job.total,
+        completedCount: job.completedCount || job.progress,
+        errors: job.errors
+    });
 });
 
 // POST /api/youtube/cancel/:channelId — cancel ongoing fetch
@@ -133,7 +139,12 @@ async function processChannel(channel, channelDbId, maxResults, job) {
 
         // Insert videos and analyze
         for (let i = 0; i < videos.length; i++) {
-            if (job.cancel) { job.status = 'cancelled'; activeJobs.delete(channelDbId); return; }
+            if (job.cancel) {
+                job.status = 'cancelled';
+                job.completedCount = job.progress;
+                setTimeout(() => activeJobs.delete(channelDbId), 30000);
+                return;
+            }
 
             const v = videos[i];
             try {
@@ -166,6 +177,15 @@ async function processChannel(channel, channelDbId, maxResults, job) {
                 }
             }
 
+            // Cancel check: after transcript fetch
+            if (job.cancel) {
+                job.status = 'cancelled';
+                job.completedCount = job.progress;
+                console.log('[수집 중단] ' + channelDbId + ' - ' + job.progress + '개 수집 완료 후 중단');
+                setTimeout(() => activeJobs.delete(channelDbId), 30000);
+                return;
+            }
+
             // Extract keywords via Gemini (or fallback)
             try {
                 const keywords = await extractKeywords(v.title, v.description, transcriptText || '');
@@ -190,6 +210,15 @@ async function processChannel(channel, channelDbId, maxResults, job) {
                 // Save summary and keywords text
                 runSQL('UPDATE videos SET transcript_summary = ?, transcript_keywords = ?, is_analyzed = 1 WHERE id = ?',
                     [summary, keywords.join(','), videoDbId]);
+
+                // Cancel check: after keyword extraction and summarization
+                if (job.cancel) {
+                    job.status = 'cancelled';
+                    job.completedCount = job.progress;
+                    console.log('[수집 중단] ' + channelDbId + ' - ' + job.progress + '개 수집 완료 후 중단');
+                    setTimeout(() => activeJobs.delete(channelDbId), 30000);
+                    return;
+                }
 
                 // Categorize
                 const catGroups = queryAll('SELECT DISTINCT group_name FROM categories');
@@ -256,6 +285,15 @@ async function processChannel(channel, channelDbId, maxResults, job) {
                             console.error(`[SubCat] Auto classify failed for ${v.video_id}:`, subCatErr.message, subCatErr.stack);
                         }
 
+                        // Cancel check: after SubCat classification
+                        if (job.cancel) {
+                            job.status = 'cancelled';
+                            job.completedCount = job.progress;
+                            console.log('[수집 중단] ' + channelDbId + ' - ' + job.progress + '개 수집 완료 후 중단');
+                            setTimeout(() => activeJobs.delete(channelDbId), 30000);
+                            return;
+                        }
+
                         // Save economy metadata if available
                         if (Object.keys(economyMetadata).length > 0) {
                             runSQLNoSave('UPDATE videos SET economy_metadata = ? WHERE id = ?', [JSON.stringify(economyMetadata), videoDbId]);
@@ -272,7 +310,10 @@ async function processChannel(channel, channelDbId, maxResults, job) {
             // 수집 중지 여부 확인 (이미 저장된 영상은 유지)
             const activeCheck = queryOne('SELECT is_active, name FROM channels WHERE id = ?', [channelDbId]);
             if (activeCheck && activeCheck.is_active === 0) {
-                console.log(`[수집 중단] ${activeCheck.name} - 사용자가 중지함 (수집 완료분: DB에 이미 저장됨)`);
+                job.status = 'cancelled';
+                job.completedCount = job.progress;
+                console.log(`[수집 중단] ${channelDbId} - ${job.progress}개 수집 완료 후 중단`);
+                setTimeout(() => activeJobs.delete(channelDbId), 30000);
                 break;
             }
         }
