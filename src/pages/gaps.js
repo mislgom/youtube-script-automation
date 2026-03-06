@@ -1268,100 +1268,37 @@ function attachSuggestionEvents(container, api) {
           });
         }
 
-        // Event: Recommend Titles for this DNA
-        const titleBtn = resultArea.querySelector('.theme-recommend-titles-btn');
-        const titlesResult = resultArea.querySelector('.theme-titles-result');
-        titleBtn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          titleBtn.disabled = true;
-          titleBtn.innerHTML = '<span class="spinner-sm"></span> 분석 중...';
-          titlesResult.classList.remove('hidden');
-          titlesResult.innerHTML = '<div class="flex-center" style="padding:20px;"><div class="spinner-sm"></div></div>';
-
-          try {
-            // 1. Keywords
-            const kwRes = await api.extractGoldenKeywords(dna);
-            // 2. Titles (Pass the original topic title)
-            const tRes = await api.recommendDnaTitles(dna, kwRes, category, title);
-            const titles = tRes.titles || [];
-
-            // 원본 주제를 맨 앞에 추가
-            titles.unshift({
-              title: title,
-              ctr_score: 100,
-              reason: "⭐ 선택하신 원본 주제"
-            });
-
-            titlesResult.innerHTML = `
-              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
-                <div style="font-weight:800; color:var(--danger); font-size:0.85rem;">🔥 떡상 공식 추천 제목 (클릭 시 뼈대 생성)</div>
-                <button class="titles-section-toggle" style="background:none; border:1px solid rgba(255,255,255,0.15); color:var(--text-muted); cursor:pointer; font-size:0.72rem; font-weight:700; padding:2px 10px; border-radius:4px;">▼ 접기</button>
-              </div>
-              <div class="titles-collapsible-content" style="overflow:hidden; transition:max-height 0.3s ease;">
-              <div style="display:flex; flex-direction:column; gap:8px;">
-                ${titles.map(t => `
-                  <div class="theme-title-item" 
-                    style="display:flex; align-items:flex-start; gap:12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); padding:10px 14px; border-radius:8px; cursor:pointer; font-size:0.95rem; font-weight:800; transition:all 0.2s;"
-                    onmouseover="this.style.borderColor='var(--accent)';"
-                    onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='rgba(255,255,255,0.08)';"
-                    onclick="window.genThemeSkeleton(this, '${t.title.replace(/'/g, "\\'")}', '${title.replace(/'/g, "\\'")}')">
-                    <input type="checkbox" style="width:18px; height:18px; accent-color:var(--accent); flex-shrink:0; pointer-events:none; margin-top:2px;">
-                    <div style="flex:1;">
-                      <span class="title-text">${t.title}</span>
-                      <span style="font-size:0.65rem; color:var(--accent); font-weight:400; display:block; margin-top:4px;">${t.reason}</span>
-                    </div>
-                  </div>
-                `).join('')}
-              </div>
-              <div class="theme-skeleton-area mt-16"></div>
-              </div><!-- /titles-collapsible-content -->
-            `;
-            // Event: 떡상 제목 섹션 toggle
-            const titlesToggleBtn = titlesResult.querySelector('.titles-section-toggle');
-            const titlesCollapsible = titlesResult.querySelector('.titles-collapsible-content');
-            if (titlesToggleBtn && titlesCollapsible) {
-              titlesCollapsible.style.maxHeight = titlesCollapsible.scrollHeight + 'px';
-              titlesToggleBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const isOpen = titlesCollapsible.style.maxHeight !== '0px';
-                titlesCollapsible.style.maxHeight = isOpen ? '0px' : titlesCollapsible.scrollHeight + 'px';
-                titlesToggleBtn.textContent = isOpen ? '▲ 펼치기' : '▼ 접기';
-              });
-            }
-            titleBtn.innerHTML = '✅ 제목 추천 완료';
-          } catch (err) {
-            titlesResult.innerHTML = `<div style="color:var(--danger); font-size:0.8rem;">❌ 실패: ${err.message}</div>`;
-            titleBtn.disabled = false;
-            titleBtn.innerHTML = '🔄 다시 시도';
-          }
-        });
-
-        // Global Helper for theme-specific skeleton
+        // genThemeSkeleton: dna/category/api를 클로저로 캡처 (타이밍 이슈 방지)
         window.genThemeSkeleton = async (el, selectedTitle, originalTopic) => {
           if (el) {
-            const list = el.closest('div');
-            list.querySelectorAll('.theme-title-item').forEach(item => {
-              item.style.background = 'rgba(255,255,255,0.03)';
-              item.style.borderColor = 'rgba(255,255,255,0.08)';
-              const cb = item.querySelector('input');
-              if (cb) cb.checked = false;
-            });
-            el.style.background = 'rgba(255,255,255,0.08)'; // Visual highlight
+            const list = el.closest('[data-title-list]');
+            if (list) {
+              list.querySelectorAll('.theme-title-item').forEach(item => {
+                item.style.background = 'rgba(255,255,255,0.03)';
+                item.style.borderColor = 'rgba(255,255,255,0.08)';
+                const cb = item.querySelector('input');
+                if (cb) cb.checked = false;
+              });
+            }
+            el.style.background = 'rgba(255,255,255,0.08)';
             el.style.borderColor = 'var(--accent)';
             const cb = el.querySelector('input');
             if (cb) cb.checked = true;
           }
 
-          const resultArea = (el || document.querySelector('.theme-title-item input:checked'))?.closest('.theme-titles-result');
-          if (!resultArea) return;
-          const area = resultArea.querySelector('.theme-skeleton-area');
-          // 뼈대 생성 시 접혀있으면 펼치기
-          const titlesCol = resultArea.querySelector('.titles-collapsible-content');
+          const skelResultArea = el?.closest('.theme-titles-result');
+          if (!skelResultArea) return;
+          const area = skelResultArea.querySelector('.theme-skeleton-area');
+          if (!area) return;
+
+          // 접혀있으면 펼치기
+          const titlesCol = skelResultArea.querySelector('.titles-collapsible-content');
           if (titlesCol && titlesCol.style.maxHeight === '0px') {
             titlesCol.style.maxHeight = titlesCol.scrollHeight + 'px';
-            const tBtn = resultArea.querySelector('.titles-section-toggle');
+            const tBtn = skelResultArea.querySelector('.titles-section-toggle');
             if (tBtn) tBtn.textContent = '▼ 접기';
           }
+
           area.innerHTML = '<div class="flex-center" style="padding:20px; flex-direction:column; gap:10px;"><div class="spinner-sm"></div><div style="font-size:0.75rem;">대본 설계 중...</div></div>';
 
           try {
@@ -1372,8 +1309,8 @@ function attachSuggestionEvents(container, api) {
                 <div class="flex-between mb-16" style="align-items:center;">
                   <div style="font-weight:900; color:var(--success); font-size:1.1rem;">📜 최종 대본 설계</div>
                   <div class="flex gap-8">
-                    <button class="btn btn-secondary btn-xs" onclick="window.redoThemeSkeleton(this, '${selectedTitle.replace(/'/g, "\\'")}', '${originalTopic.replace(/'/g, "\\'")}')">🔄 다시 만들기</button>
-                    <button class="btn btn-success btn-xs" onclick="window.downloadThemeSkeleton(this, '${selectedTitle.replace(/'/g, "\\'")}')">📥 TXT 다운로드</button>
+                    <button class="redo-skel-btn btn btn-secondary btn-xs">🔄 다시 만들기</button>
+                    <button class="dl-skel-btn btn btn-success btn-xs">📥 TXT 다운로드</button>
                   </div>
                 </div>
                 <div style="font-size:0.85rem; line-height:1.6; display:flex; flex-direction:column; gap:10px;" class="skeleton-content">
@@ -1382,13 +1319,126 @@ function attachSuggestionEvents(container, api) {
                 </div>
               </div>
             `;
-            // 뼈대 추가 후 collapsible max-height 갱신 (콘텐츠가 늘어났으므로)
+            // 다시 만들기
+            area.querySelector('.redo-skel-btn').addEventListener('click', (e) => {
+              e.stopPropagation();
+              window.genThemeSkeleton(el, selectedTitle, originalTopic);
+            });
+            // TXT 다운로드
+            area.querySelector('.dl-skel-btn').addEventListener('click', (e) => {
+              e.stopPropagation();
+              const card = area.querySelector('.card');
+              const sections = card.querySelectorAll('.skeleton-section');
+              const climax = card.querySelector('.climax-note');
+              let text = `[최종 대본 설계]\n제목: ${selectedTitle}\n\n`;
+              sections.forEach(s => { text += s.innerText.replace(/\n\s+/g, '\n').trim() + '\n\n'; });
+              if (climax) text += `\n${climax.innerText}\n`;
+              const blob = new Blob([text], { type: 'text/plain' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `대본뼈대_${selectedTitle.replace(/[\\/:*?"<>|]/g, '_')}.txt`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            });
             if (titlesCol) titlesCol.style.maxHeight = titlesCol.scrollHeight + 'px';
             area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           } catch (err) {
             area.innerHTML = `<div style="color:var(--danger);">❌ 실패: ${err.message}</div>`;
           }
         };
+
+        // Event: Recommend Titles for this DNA
+        const titleBtn = resultArea.querySelector('.theme-recommend-titles-btn');
+        const titlesResult = resultArea.querySelector('.theme-titles-result');
+
+        const doFetchTitles = async () => {
+          const kwRes = await api.extractGoldenKeywords(dna);
+          const tRes = await api.recommendDnaTitles(dna, kwRes, category, title);
+          const titles = tRes.titles || [];
+          titles.unshift({ title, ctr_score: 100, reason: '⭐ 선택하신 원본 주제' });
+
+          titlesResult.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; gap:6px;">
+              <div style="font-weight:800; color:var(--danger); font-size:0.85rem;">🔥 떡상 공식 추천 제목 (클릭 시 뼈대 생성)</div>
+              <div style="display:flex; gap:6px; flex-shrink:0;">
+                <button class="redo-titles-inner-btn" style="background:none; border:1px solid rgba(255,255,255,0.15); color:var(--text-muted); cursor:pointer; font-size:0.72rem; font-weight:700; padding:2px 10px; border-radius:4px;">🔄 다시 추천</button>
+                <button class="titles-section-toggle" style="background:none; border:1px solid rgba(255,255,255,0.15); color:var(--text-muted); cursor:pointer; font-size:0.72rem; font-weight:700; padding:2px 10px; border-radius:4px;">▼ 접기</button>
+              </div>
+            </div>
+            <div class="titles-collapsible-content" style="overflow:hidden; transition:max-height 0.3s ease;">
+              <div data-title-list style="display:flex; flex-direction:column; gap:8px;">
+                ${titles.map(t => `
+                  <div class="theme-title-item"
+                    data-title-val="${t.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"
+                    style="display:flex; align-items:flex-start; gap:12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); padding:10px 14px; border-radius:8px; cursor:pointer; font-size:0.95rem; font-weight:800; transition:all 0.2s;"
+                    onmouseover="this.style.borderColor='var(--accent)';"
+                    onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='rgba(255,255,255,0.08)';">
+                    <input type="checkbox" style="width:18px; height:18px; accent-color:var(--accent); flex-shrink:0; pointer-events:none; margin-top:2px;">
+                    <div style="flex:1;">
+                      <span class="title-text">${t.title}</span>
+                      <span style="font-size:0.65rem; color:var(--accent); font-weight:400; display:block; margin-top:4px;">${t.reason}</span>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+              <div class="theme-skeleton-area mt-16"></div>
+            </div><!-- /titles-collapsible-content -->
+          `;
+
+          // Toggle
+          const titlesToggleBtn = titlesResult.querySelector('.titles-section-toggle');
+          const titlesCollapsible = titlesResult.querySelector('.titles-collapsible-content');
+          if (titlesToggleBtn && titlesCollapsible) {
+            titlesCollapsible.style.maxHeight = titlesCollapsible.scrollHeight + 'px';
+            titlesToggleBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              const isOpen = titlesCollapsible.style.maxHeight !== '0px';
+              titlesCollapsible.style.maxHeight = isOpen ? '0px' : titlesCollapsible.scrollHeight + 'px';
+              titlesToggleBtn.textContent = isOpen ? '▲ 펼치기' : '▼ 접기';
+            });
+          }
+
+          // 제목 아이템 클릭 → 뼈대 생성 (onclick 속성 대신 이벤트 리스너)
+          titlesResult.querySelectorAll('.theme-title-item').forEach(itemEl => {
+            itemEl.addEventListener('click', (e) => {
+              e.stopPropagation();
+              window.genThemeSkeleton(itemEl, itemEl.dataset.titleVal, title);
+            });
+          });
+
+          // 다시 추천 버튼
+          const redoInnerBtn = titlesResult.querySelector('.redo-titles-inner-btn');
+          if (redoInnerBtn) {
+            redoInnerBtn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              redoInnerBtn.disabled = true;
+              redoInnerBtn.textContent = '추천 중...';
+              titlesResult.innerHTML = '<div class="flex-center" style="padding:20px;"><div class="spinner-sm"></div></div>';
+              try { await doFetchTitles(); } catch (err) {
+                titlesResult.innerHTML = `<div style="color:var(--danger); font-size:0.8rem;">❌ 실패: ${err.message}</div>`;
+              }
+            });
+          }
+        };
+
+        titleBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          titleBtn.disabled = true;
+          titleBtn.innerHTML = '<span class="spinner-sm"></span> 분석 중...';
+          titlesResult.classList.remove('hidden');
+          titlesResult.innerHTML = '<div class="flex-center" style="padding:20px;"><div class="spinner-sm"></div></div>';
+          try {
+            await doFetchTitles();
+            titleBtn.innerHTML = '✅ 제목 추천 완료';
+          } catch (err) {
+            titlesResult.innerHTML = `<div style="color:var(--danger); font-size:0.8rem;">❌ 실패: ${err.message}</div>`;
+            titleBtn.disabled = false;
+            titleBtn.innerHTML = '🔄 다시 시도';
+          }
+        });
 
       } catch (err) {
         loading.style.display = 'none';
@@ -2481,7 +2531,7 @@ window.downloadThemeSkeleton = (btn, title) => {
   const a = document.createElement('a');
   a.href = url;
   const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_');
-  a.download = `(뼈대_${safeTitle}).txt`;
+  a.download = `대본뼈대_${safeTitle}.txt`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
