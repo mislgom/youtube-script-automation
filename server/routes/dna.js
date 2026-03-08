@@ -164,8 +164,18 @@ router.post('/skeleton', async (req, res) => {
         const skeleton = await generateDnaSkeleton(dna, selectedTitle, category);
         if (!skeleton) return res.status(502).json({ error: '뼈대 생성 실패 (AI 응답 없음)' });
 
+        const dna_evidence = {
+            analyzed_video_count: dna._meta?.videoCount ?? '정보 없음',
+            hook_type: dna.hook_dna?.hook_type || '정보 없음',
+            hook_examples: (dna.hook_dna?.hook_sentences || []).slice(0, 3),
+            struct_type: dna.structure_dna?.structure_type || '정보 없음',
+            payoff_type: dna.structure_dna?.payoff_type || '정보 없음',
+            emotion_peaks: (dna.emotion_dna?.peak_points || []).join(' / ') || '정보 없음',
+            style_type: dna.title_dna?.title_pattern || '정보 없음',
+        };
+
         setCache('last_skeleton', skeleton);
-        res.json({ skeleton });
+        res.json({ skeleton, dna_evidence });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
