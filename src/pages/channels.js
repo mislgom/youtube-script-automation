@@ -5,9 +5,7 @@ let currentFolder = 'all';
 const FIXED_CATEGORIES = ['야담', '경제', '심리학'];
 
 // ─── Batch state ───────────────────────────────────────────────────────────
-const MAX_CONCURRENT = 5;
-let pendingQueue = [];       // 대기 중인 채널 ID 배열
-let activeJobs = new Map();  // channelId -> pollInterval (시작 중이면 null)
+let activeJobs = new Map();  // channelId -> pollInterval
 let isFetchAllRunning = false;
 const LS_KEY = 'channelFetchState';
 
@@ -16,7 +14,6 @@ function saveFetchState() {
   if (!isFetchAllRunning) return;
   localStorage.setItem(LS_KEY, JSON.stringify({
     active: [...activeJobs.keys()],
-    pending: [...pendingQueue],
     startedAt: Date.now(),
   }));
 }
@@ -59,24 +56,9 @@ function updateChannelCount(channelId) {
 }
 
 // ─── Batch orchestration ───────────────────────────────────────────────────
-function startBatchCollection(api, channelIds) {
-  pendingQueue = [...channelIds];
-  saveFetchState();
-  fillSlots(api);
-}
-
-function fillSlots(api) {
-  while (activeJobs.size < MAX_CONCURRENT && pendingQueue.length > 0) {
-    const id = pendingQueue.shift();
-    startSingleCollection(api, id, false);
-    saveFetchState();
-  }
-}
-
 function onChannelDone(api, channelId) {
   saveFetchState();
-  fillSlots(api);
-  if (activeJobs.size === 0 && pendingQueue.length === 0 && isFetchAllRunning) {
+  if (activeJobs.size === 0 && isFetchAllRunning) {
     isFetchAllRunning = false;
     clearFetchState();
     resetFetchAllBtn();
@@ -87,7 +69,6 @@ function onChannelDone(api, channelId) {
 
 function stopAllFetch(api) {
   isFetchAllRunning = false;
-  pendingQueue = [];
   for (const [chId, interval] of activeJobs.entries()) {
     if (interval) clearInterval(interval);
     api.cancelFetch(chId).catch(() => {});
@@ -99,10 +80,7 @@ function stopAllFetch(api) {
 }
 
 // ─── Single channel collection ─────────────────────────────────────────────
-async function startSingleCollection(api, channelId, isRestore) {
-  // 슬롯 즉시 점유 (fillSlots 중복 방지)
-  activeJobs.set(channelId, null);
-
+function startSingleCollection(api, channelId, isRestore) {
   const progressArea = document.getElementById(`progress-${channelId}`);
   const btn = document.querySelector(`.fetch-btn[data-id="${channelId}"]`);
 
@@ -113,22 +91,10 @@ async function startSingleCollection(api, channelId, isRestore) {
     progressArea.querySelector('.fill').style.background = 'linear-gradient(90deg, #4f46e5, #a855f7)';
   }
 
+  // 응답 대기 없이 즉시 요청 발사
   if (!isRestore) {
-    try {
-      await api.fetchChannelVideos(channelId);
-    } catch (e) {
-      const msg = e.message || '';
-      const alreadyRunning = msg.includes('이미') || msg.includes('already') || msg.includes('queue');
-      if (!alreadyRunning) {
-        showToast('수집 시작 실패: ' + msg, 'error');
-        if (btn) { btn.disabled = false; btn.textContent = '🔄 영상 수집'; }
-        activeJobs.delete(channelId);
-        if (isFetchAllRunning) onChannelDone(api, channelId);
-        return;
-      }
-      // 이미 실행 중이면 폴링만 재연결
-      console.log('이미 수집 중 (폴링 재연결):', channelId, msg);
-    }
+    fetch(`/api/youtube/fetch/${channelId}`, { method: 'POST' })
+      .catch(e => console.log('수집 시작 오류 (무시):', channelId, e.message));
   }
 
   const inBatch = isFetchAllRunning;
@@ -218,15 +184,13 @@ async function restoreFetchState(api) {
 
   try {
     const state = JSON.parse(saved);
-    // 30분 이상 지난 상태는 무시
     if (Date.now() - state.startedAt > 30 * 60 * 1000) {
       clearFetchState();
       return;
     }
 
     const activeIds = state.active || [];
-    const pendingIds = state.pending || [];
-    if (activeIds.length === 0 && pendingIds.length === 0) {
+    if (activeIds.length === 0) {
       clearFetchState();
       return;
     }
@@ -234,7 +198,6 @@ async function restoreFetchState(api) {
     showToast('이전 수집 작업을 복원합니다...', 'info');
     isFetchAllRunning = true;
     setBatchRunningBtn();
-    pendingQueue = [...pendingIds];
 
     const TERMINAL = ['complete', 'error', 'cancelled', 'idle'];
     const results = await Promise.allSettled(
@@ -249,9 +212,7 @@ async function restoreFetchState(api) {
       }
     }
 
-    fillSlots(api);
-
-    if (activeJobs.size === 0 && pendingQueue.length === 0) {
+    if (activeJobs.size === 0) {
       isFetchAllRunning = false;
       clearFetchState();
       resetFetchAllBtn();
@@ -300,20 +261,13 @@ export async function renderChannels(container, { api, navigate }) {
     const toFetch = channels.filter(ch => ch.is_active !== 0);
     if (toFetch.length === 0) { showToast('수집할 채널이 없습니다.', 'warning'); return; }
 
-    // 기존 진행 중인 작업 먼저 정리 후 1초 대기
-    if (activeJobs.size > 0) {
-      for (const [chId, interval] of activeJobs.entries()) {
-        if (interval) clearInterval(interval);
-        activeJobs.delete(chId);
-        api.cancelFetch(chId).catch(() => {});
-      }
-      await new Promise(r => setTimeout(r, 1000));
-    }
-
     isFetchAllRunning = true;
     setBatchRunningBtn();
-    showToast(`${toFetch.length}개 채널 수집 시작 (동시 최대 ${MAX_CONCURRENT}개)`, 'info');
-    startBatchCollection(api, toFetch.map(ch => ch.id));
+    showToast(`${toFetch.length}개 채널 수집을 시작합니다.`, 'info');
+    for (const ch of toFetch) {
+      startSingleCollection(api, ch.id, false);
+    }
+    saveFetchState();
   });
 
   document.getElementById('auto-categorize-btn').addEventListener('click', async () => {
