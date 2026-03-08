@@ -487,75 +487,6 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
           <!-- ID 충돌 방지를 위해 클래스 기반으로 접근하거나 고유 ID 부여 -->
           <div class="deep-analysis-area-scoped"></div>
           
-          <div class="ai-suggestions-area-scoped">
-            <div class="chart-container">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:10px;">
-                <div style="font-size:0.9rem; font-weight:700; color:var(--text-secondary);">
-                  🔥 인기 주제 Top (클릭하여 차별화 전략 분석)
-                </div>
-                <button class="card-magnify-btn" style="position:static;" onclick="toggleListMagnify(this)">
-                  🔍 글씨 전체 크게
-                </button>
-              </div>
-              <div class="ai-suggestions-list-scoped" style="display:flex;flex-direction:column;gap:12px;">
-                ${(() => {
-        // Filtering Deep Suggestions based on filterMode (전체/중간/포화)
-        let displaySuggestions = data.suggestions || suggestions || [];
-        if (filterMode === 'yellow') { // Corresponds to '중간 영역'
-          displaySuggestions = displaySuggestions.filter(s => {
-            const rate = parseInt(s.gap_rate || s.level * 20) || 0; // gap_rate 없으면 level 기반 추정
-            return rate >= 40 && rate <= 70;
-          });
-        } else if (filterMode === 'red') { // Corresponds to '포화 영역'
-          displaySuggestions = displaySuggestions.filter(s => {
-            const rate = parseInt(s.gap_rate || s.level * 20) || 0;
-            return rate < 40;
-          });
-        }
-
-        return displaySuggestions.length > 0
-          ? displaySuggestions.map((s, idx) => `
-                      <div class="suggestion-item card clickable-suggestion" 
-                        data-title="${s.title}" data-keywords="${(s.keywords || []).join(',')}"
-                        data-catx="${groupX}" data-caty="${groupY}" data-groupx="${groupX}" data-groupy="${groupY}"
-                        style="padding:16px; background:var(--bg-secondary); border-left: 4px solid ${s.gap_rate > 80 ? 'var(--success)' : 'var(--accent)'}; transition: all 0.2s; cursor:pointer;">
-                        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
-                          <div style="flex:1; padding-right:15px;">
-                            <div style="font-size:0.75rem; color:var(--text-muted); font-weight:700; margin-bottom:4px;">TOP ${idx + 1}</div>
-                            <div class="suggestion-title" style="font-size:1.1rem; font-weight:800; color:var(--text-primary); line-height:1.4;">
-                              ${s.title || '제목 없음'}
-                            </div>
-                          </div>
-                          <div style="text-align:right; min-width:80px;">
-                            <div style="font-size:0.7rem; color:var(--text-muted); font-weight:700; margin-bottom:4px;">인기도</div>
-                            <div style="font-size:1.2rem; font-weight:900; color:${(s.gap_rate || 0) > 60 ? '#f97316' : 'var(--accent)'};">
-                              ${s.gap_rate || 0}%
-                            </div>
-                          </div>
-                        </div>
-                        <div style="height:6px; background:rgba(255,255,255,0.05); border-radius:3px; margin-bottom:12px; overflow:hidden;">
-                          <div style="height:100%; width:${s.gap_rate || 0}%; background: ${(s.gap_rate || 0) > 60 ? '#f97316' : 'var(--accent)'}; transition: width 1s ease-out;"></div>
-                        </div>
-                        <div style="font-size:0.83rem; line-height:1.5; color:var(--text-secondary); border-top:1px solid rgba(255,255,255,0.05); padding-top:10px;">
-                          <span style="color:var(--accent); font-weight:700; margin-right:4px;">📊</span> ${s.description || s.reason || (s.count ? `이 주제는 영상 ${s.count}개가 존재하는 인기 주제입니다.` : '-')}
-                        </div>
-                        <div class="script-plan-loading mt-16" style="display:none; text-align:center;">
-                          <div class="spinner-sm mb-8" style="margin:0 auto;"></div>
-                          <div style="font-size:0.75rem; color:var(--accent);">후킹 제목 및 상세 대본 뼈대 생성 중...</div>
-                        </div>
-                        <div class="script-plan-result mt-16" style="display:none; border-top:1px dashed var(--accent); padding-top:16px;"></div>
-                      </div>
-                    `).join('') : `
-                      <div class="empty-state" style="padding:40px 0;">
-                        <p style="font-size:0.85rem; color:var(--text-muted);">
-                          분석을 실행하면 해당 카테고리 조합에 대한<br>AI 추천 주제가 여기에 표시됩니다.
-                        </p>
-                      </div>
-                    `;
-      })()}
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     `;
@@ -601,9 +532,6 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
                   <button class="detail-filter" data-detail-filter="mid">🟡 중간</button>
                   <button class="detail-filter" data-detail-filter="low">🟢 여유</button>
                 </div>
-                <div style="display:flex; gap:8px; align-items:center;">
-                  <button class="detail-ai-btn" id="detail-ai-recommend-btn">🤖 AI 차별화 주제 추천받기</button>
-                </div>
               </div>
               ${detail.groups.map(group => `
                 <div class="detail-group">
@@ -647,25 +575,6 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
               }
             });
           });
-        });
-
-        // AI 추천 버튼
-        el.querySelector('#detail-ai-recommend-btn')?.addEventListener('click', async () => {
-          const deepArea = el.querySelector('.deep-analysis-area-scoped');
-          if (!deepArea) { showToast('분석 영역을 찾을 수 없습니다.', 'error'); return; }
-          const meta = { eraId, eventId, sourceId, personId: '0', regionId: '0' };
-          if (detail.groups && detail.groups.length > 0) {
-            meta.saturationData = detail.groups.map(g => ({
-              groupName: g.groupName,
-              cells: g.cells.map(c => ({
-                label: c.label,
-                count: c.count,
-                level: c.level
-              }))
-            }));
-          }
-          showToast(`'${label}' 테마 AI 차별화 주제 추천을 시작합니다...`, 'info');
-          await performDeepAnalysis(label, label, '세부 카테고리', '시대/사건/소재', detail.totalVideos || 0, api, true, meta, deepArea);
         });
 
         // 세부 행 클릭 → 2단계 드릴다운 (세부 카테고리 선택 UI)
