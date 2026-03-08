@@ -1,258 +1,249 @@
-// Script Editor Page — senior-friendly large text editor
+// Script Editor Page
 import { showToast, showModal } from '../components/toast.js';
 
 export async function renderEditor(container, { api, navigate }) {
     container.innerHTML = `
-    <div class="page-header flex-between">
-      <div>
-        <h2>✍️ 대본 편집</h2>
-        <p>나만의 멋진 대본을 작성하고 AI의 도움을 받아보세요</p>
+    <div style="max-width:1400px; margin:0 auto; padding:20px 24px; display:flex; flex-direction:column; gap:14px; min-height:calc(100vh - 60px);">
+
+      <!-- 헤더 -->
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <span style="font-size:1.3rem; font-weight:900; color:#e0e0e0;">✏️ 대본 편집</span>
+        <div style="display:flex; gap:8px;">
+          <button id="script-list-btn" style="background:rgba(255,255,255,0.06); color:#9ca3af; border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:7px 14px; font-size:0.82rem; font-weight:600; cursor:pointer;">📁 내 대본 목록</button>
+          <button id="new-header-btn" style="background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); border-radius:8px; padding:7px 14px; font-size:0.82rem; font-weight:600; cursor:pointer;">+ 새 대본</button>
+        </div>
       </div>
-      <div class="flex gap-12">
-        <button class="btn btn-secondary" id="script-list-btn">📂 내 대본 목록</button>
-        <button class="btn btn-primary" id="new-script-btn">+ 새 대본 만들기</button>
+
+      <!-- 1단: 지시문 박스 -->
+      <div style="background:rgba(30,30,50,0.8); border:1px solid rgba(99,102,241,0.2); border-radius:12px; padding:14px 16px; display:flex; align-items:center; gap:12px;">
+        <label style="font-weight:700; color:#a5b4fc; font-size:0.85rem; white-space:nowrap;">💬 지시문</label>
+        <textarea id="script-instructions" placeholder="AI에게 지시할 내용을 입력하세요. (예: 더 자연스럽게 다듬어줘, 구어체로 바꿔줘, 도입부를 강조해줘)" style="flex:1; height:40px; background:rgba(15,15,30,0.6); border:1px solid rgba(255,255,255,0.08); border-radius:8px; color:#e0e0e0; padding:8px 12px; font-size:0.85rem; resize:none; font-family:inherit; line-height:1.4;"></textarea>
+        <div style="display:flex; flex-direction:column; gap:6px; align-items:center;">
+          <button id="start-edit-btn" style="background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; padding:7px 18px; border-radius:8px; border:none; font-size:0.82rem; font-weight:600; cursor:pointer; white-space:nowrap; transition:filter 0.15s;">🚀 수정 시작</button>
+          <button id="fullview-instr-btn" style="background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); padding:5px 18px; border-radius:8px; font-size:0.78rem; font-weight:600; cursor:pointer; white-space:nowrap;">🔍 전체 보기</button>
+        </div>
+      </div>
+
+      <!-- 2단: 좌우 그리드 -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; flex:1; min-height:0;">
+
+        <!-- 왼쪽: 대본 본문 -->
+        <div style="background:rgba(30,30,50,0.8); border:1px solid rgba(99,102,241,0.2); border-radius:12px; display:flex; flex-direction:column; min-height:500px;">
+          <!-- 헤더 -->
+          <div style="padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
+            <span style="font-weight:700; color:#e0e0e0; font-size:0.88rem;">📄 대본 본문 (원본)</span>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <button id="fullview-left-btn" style="background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">🔍 전체 보기</button>
+              <button id="file-upload-btn" style="background:rgba(255,255,255,0.06); color:#9ca3af; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">📂 파일</button>
+              <input type="file" id="file-input-hidden" style="display:none;" accept=".txt">
+              <input id="script-search-input" type="text" placeholder="단어 검색..." style="background:rgba(15,15,30,0.6); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:4px 8px; font-size:0.78rem; color:#e0e0e0; width:80px;">
+              <button id="search-next-btn" style="background:rgba(99,102,241,0.2); color:#a5b4fc; border:1px solid rgba(99,102,241,0.2); border-radius:6px; padding:4px 8px; font-size:0.78rem; font-weight:600; cursor:pointer;">검색</button>
+            </div>
+          </div>
+          <!-- 본문 + 드롭존 -->
+          <div id="drop-zone" style="flex:1; position:relative; display:flex; flex-direction:column; min-height:0;">
+            <div id="drop-overlay" style="display:none; position:absolute; inset:0; background:rgba(99,102,241,0.1); border:3px dashed #a5b4fc; border-radius:12px; z-index:10; align-items:center; justify-content:center; pointer-events:none;">
+              <span style="font-size:1.1rem; font-weight:700; color:#a5b4fc;">📂 파일을 여기에 놓으세요</span>
+            </div>
+            <textarea id="script-content" placeholder="이곳에 대본 내용을 자유롭게 작성하거나, 텍스트 파일을 끌어다 놓으세요..." style="flex:1; background:transparent; border:none; color:#e0e0e0; padding:16px; font-size:0.92rem; line-height:1.8; resize:none; font-family:inherit; outline:none;"></textarea>
+          </div>
+          <!-- 하단 바 -->
+          <div style="padding:8px 14px; border-top:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; flex-wrap:wrap; gap:6px;">
+            <div style="display:flex; gap:6px; align-items:center;">
+              <span id="save-status" style="font-size:0.78rem; color:#6b7280; font-weight:500;"></span>
+              <button id="new-script-btn" style="background:rgba(255,255,255,0.06); color:#9ca3af; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:5px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">📝 새 대본</button>
+              <button id="delete-script-btn" style="display:none; background:rgba(239,68,68,0.1); color:#f87171; border:1px solid rgba(239,68,68,0.2); border-radius:6px; padding:5px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">🗑 삭제</button>
+              <button id="view-all-btn" style="background:rgba(255,255,255,0.06); color:#9ca3af; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:5px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">👁 전체보기</button>
+            </div>
+            <button id="export-script-btn" style="background:linear-gradient(135deg,#ef4444,#f97316); color:#fff; border:none; border-radius:8px; padding:6px 14px; font-size:0.82rem; font-weight:700; cursor:pointer;">⬇ 다운로드</button>
+          </div>
+        </div>
+
+        <!-- 오른쪽: AI 수정 결과 -->
+        <div style="background:rgba(30,30,50,0.8); border:1px solid rgba(46,204,64,0.2); border-radius:12px; display:flex; flex-direction:column; min-height:500px;">
+          <!-- 헤더 -->
+          <div style="padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
+            <span style="font-weight:700; color:#6ee7b7; font-size:0.88rem;">✨ AI 수정 결과</span>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <button id="fullview-right-btn" style="background:rgba(46,204,64,0.1); color:#6ee7b7; border:1px solid rgba(46,204,64,0.2); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">🔍 전체 보기</button>
+              <button id="apply-edit-btn" style="display:none; background:rgba(46,204,64,0.15); color:#6ee7b7; border:1px solid rgba(46,204,64,0.2); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">✅ 수정 적용</button>
+              <button id="revert-edit-btn" style="display:none; background:rgba(255,255,255,0.06); color:#9ca3af; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">↩️ 되돌리기</button>
+            </div>
+          </div>
+          <!-- 결과 영역 -->
+          <div id="ai-result-placeholder" style="flex:1; display:flex; align-items:center; justify-content:center; color:#6b7280; font-size:0.95rem; padding:40px; text-align:center; line-height:1.8;">
+            <div>
+              <div style="font-size:2rem; margin-bottom:12px;">🤖</div>
+              <div>지시문을 입력하고 <strong style="color:#a5b4fc;">🚀 수정 시작</strong>을 누르면<br>AI가 수정한 결과가 여기에 표시됩니다.</div>
+              <div style="margin-top:8px; font-size:0.78rem; color:rgba(255,255,255,0.2);">초록 밑줄: 추가/변경된 내용</div>
+            </div>
+          </div>
+          <div id="diff-viewer" style="display:none; flex:1; font-size:0.92rem; line-height:1.8; padding:16px; background:transparent; overflow-y:auto; white-space:pre-wrap; color:#e0e0e0; font-weight:500;"></div>
+          <!-- 하단 바 -->
+          <div style="padding:8px 14px; border-top:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; flex-wrap:wrap; gap:6px;">
+            <span id="diff-count-label" style="font-size:0.78rem; color:#6b7280;">수정된 구간: -</span>
+            <button id="export-ai-btn" style="background:rgba(46,204,64,0.12); color:#6ee7b7; border:1px solid rgba(46,204,64,0.2); border-radius:8px; padding:6px 14px; font-size:0.82rem; font-weight:700; cursor:pointer;">⬇ 수정본 다운로드</button>
+          </div>
+        </div>
+
       </div>
     </div>
 
-    <div id="editor-container" class="animation-fade-in">
-       <div class="card" style="padding:0; overflow:hidden; display:flex; min-height:700px; border:2px solid var(--border);">
-          <!-- Left: Instruction Box -->
-          <div id="left-panel" style="width:22%; min-width:150px; max-width:55%; background: var(--bg-card); border-right: 2px solid var(--border); padding:32px; display:flex; flex-direction:column; flex-shrink:0;">
-            <label style="font-size:1.3rem; font-weight:900; color:var(--accent); margin-bottom:16px;">💬 지시문 박스</label>
-            <textarea id="script-instructions" placeholder="대본 작성 시 주의할 점이나 메모를 적어주세요..." style="flex:1; font-size:1.1rem; line-height:1.6; padding:20px; font-weight:600; background:rgba(255,255,255,0.02); resize:none;"></textarea>
-            <div style="margin-top:20px; display:flex; gap:8px;">
-              <button id="start-edit-btn" class="btn btn-accent" style="flex:1; padding:14px; font-size:1.1rem; font-weight:800;">🚀 수정 시작</button>
-              <button id="stop-edit-btn" class="btn btn-secondary hidden" style="flex:1; padding:14px; font-size:1.1rem; font-weight:800; border:2px solid var(--danger); color:var(--danger); background:transparent;">⏹ 중지</button>
-            </div>
-            <p style="font-size:0.95rem; color:var(--text-muted); margin-top:16px; font-weight:600; line-height:1.5;">
-              💡 팁: 지시문을 적고 '수정 시작'을 누르면 AI가 대본을 편집합니다.
-            </p>
-          </div>
-
-          <!-- Resizer Handle -->
-          <div id="panel-resizer" style="width:7px; background:var(--border); cursor:col-resize; flex-shrink:0; position:relative; transition:background 0.15s; display:flex; align-items:center; justify-content:center;" title="드래그하여 크기 조절">
-            <div style="width:2px; height:40px; background:var(--accent); border-radius:2px; opacity:0.5;"></div>
-          </div>
-
-            <!-- Right: Content Editor -->
-          <div id="right-panel" style="flex:1; min-width:0; padding:40px; display:flex; flex-direction:column; background: var(--bg-app); position: relative; height: 700px;">
-            <div class="flex-between" style="align-items:center; margin-bottom:20px;">
-              <label style="font-size:1.35rem; font-weight:900; color:var(--accent); margin-bottom:0;">📄 대본 본문 내용</label>
-              
-                <div class="flex gap-12" style="align-items: center;">
-                  <!-- File Upload Button -->
-                  <button id="file-upload-btn" class="btn btn-sm btn-outline" style="padding: 6px 16px; font-size: 1rem; font-weight: 800; border-radius: 20px; color: var(--accent); border-color: var(--accent);">
-                    📂 파일 불러오기
-                  </button>
-                  <input type="file" id="file-input-hidden" class="hidden" accept=".txt">
-
-                  <!-- Search Bar (Magnifying Glass) -->
-                  <div class="flex gap-8" style="background: var(--bg-card); border: 1px solid var(--border); padding: 4px 12px; border-radius: 20px; align-items: centre;">
-                    <span id="search-icon" style="cursor: pointer; font-size: 1.2rem;">🔍</span>
-                    <input id="script-search-input" type="text" placeholder="단어 검색..." style="background: transparent; border: none; font-size: 1rem; color: var(--text-primary); width: 140px; font-weight: 600;">
-                    <button id="search-next-btn" class="btn btn-sm btn-secondary" style="padding: 2px 8px; font-size: 0.8rem;">검색</button>
-                  </div>
-                </div>
-            </div>
-            
-            <div id="drop-zone" style="flex:1; position:relative; display:flex; flex-direction:column; overflow: hidden; border-radius: 12px; border: 2px solid var(--border);">
-              <div id="drop-overlay" class="hidden" style="position:absolute; inset:0; background:rgba(var(--accent-rgb), 0.1); border:4px dashed var(--accent); border-radius:12px; z-index:10; display:flex; align-items:center; justify-content:center; pointer-events:none;">
-                <div style="font-size:1.5rem; font-weight:900; color:var(--accent);">📂 파일을 여기에 놓으세요</div>
-              </div>
-              <textarea id="script-content" placeholder="이곳에 대본 내용을 자유롭게 작성하거나, 텍스트 파일을 이곳에 끌어다 놓으세요..." style="flex:1; font-size:1.35rem; line-height:1.8; padding:32px; font-weight:600; background:var(--bg-card); border: none; resize:none; overflow-y: auto;"></textarea>
-              <div id="diff-viewer" class="hidden" style="flex:1; font-size:1.35rem; line-height:1.8; padding:32px; font-weight:600; background:var(--bg-card); border: none; overflow-y:auto; white-space:pre-wrap;"></div>
-            </div>
-
-            <div class="flex-between" style="margin-top:24px; align-items:center;">
-               <div id="save-status" style="font-size:1.1rem; color:var(--text-muted); font-weight:600;"></div>
-               <div class="flex gap-12" style="align-items: center;">
-                 <button id="view-before-btn" class="btn btn-danger hidden" style="padding:10px 20px; font-size:1rem; font-weight:800;">🔴 수정 전</button>
-                 <button id="view-after-btn" class="btn btn-success hidden" style="padding:10px 20px; font-size:1rem; font-weight:800;">🟢 수정 후</button>
-                 <div style="width: 2px; height: 24px; background: var(--border); margin: 0 8px; display: none;" id="btn-divider"></div>
-                 <button class="btn btn-danger btn-sm" id="delete-script-btn" style="display:none; padding:10px 20px; font-size:1rem; font-weight:800;">삭제하기</button>
-                 <button class="btn btn-secondary btn-sm" id="new-script-btn" style="padding:10px 20px; font-size:1rem; font-weight:800;">새 대본</button>
-                 <button class="btn btn-secondary btn-sm" id="view-all-btn" style="padding:10px 20px; font-size:1rem; font-weight:800;">👁️ 전체보기</button>
-                 
-                 <!-- TTS Controls -->
-                 <div class="flex gap-8" style="background: var(--bg-card); border: 1px solid var(--border); padding: 4px 12px; border-radius: 20px; align-items: center; margin: 0 8px;">
-                   <button id="tts-play-btn" class="btn btn-sm btn-outline" style="padding: 4px 10px; font-size: 0.9rem; border-radius: 15px;">🔊 듣기</button>
-                   <button id="tts-stop-btn" class="btn btn-sm btn-outline hidden" style="padding: 4px 10px; font-size: 0.9rem; border-radius: 15px; border-color: var(--danger); color: var(--danger);">⏹ 중지</button>
-                   <div style="display: flex; align-items: center; gap: 4px;">
-                     <span style="font-size: 0.8rem; color: var(--text-muted);">🔈</span>
-                     <input id="tts-volume" type="range" min="0" max="1" step="0.1" value="1" style="width: 60px; height: 4px; cursor: pointer;">
-                     <span style="font-size: 0.8rem; color: var(--text-muted);">🔊</span>
-                   </div>
-                 </div>
-
-                 <button class="btn btn-primary" id="export-script-btn" style="padding:12px 28px; font-size:1.1rem; font-weight:800;">📥 다운로드</button>
-               </div>
-            </div>
-          </div>
-       </div>
+    <!-- Modal: 지시문 전체보기 -->
+    <div id="fullview-instr-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:rgba(0,0,0,0.92); padding:40px; box-sizing:border-box; flex-direction:column;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+        <h3 style="margin:0; color:#a5b4fc; font-size:1.1rem; font-weight:700;">💬 지시문 전체 보기</h3>
+        <button id="fullview-instr-close" style="background:rgba(255,255,255,0.08); color:#e0e0e0; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:7px 16px; font-size:0.88rem; font-weight:600; cursor:pointer;">✕ 닫기</button>
+      </div>
+      <textarea id="fullview-instr-textarea" style="width:100%; height:calc(100vh - 120px); background:rgba(15,15,30,0.85); color:#e0e0e0; font-size:1rem; line-height:1.9; padding:22px; border-radius:12px; border:1px solid rgba(99,102,241,0.3); resize:none; box-sizing:border-box; font-family:inherit;"></textarea>
     </div>
 
-    <!-- View All Overlay (Reading Mode) -->
+    <!-- Modal: 대본 본문 전체보기 (편집 가능) -->
+    <div id="fullview-left-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:rgba(0,0,0,0.92); padding:40px; box-sizing:border-box; flex-direction:column;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+        <h3 style="margin:0; color:#a5b4fc; font-size:1.1rem; font-weight:700;">📄 대본 본문 전체 보기 (편집 가능)</h3>
+        <button id="fullview-left-close" style="background:rgba(255,255,255,0.08); color:#e0e0e0; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:7px 16px; font-size:0.88rem; font-weight:600; cursor:pointer;">✕ 닫기</button>
+      </div>
+      <textarea id="fullview-left-textarea" style="width:100%; height:calc(100vh - 120px); background:rgba(15,15,30,0.85); color:#e0e0e0; font-size:1.05rem; line-height:1.9; padding:22px; border-radius:12px; border:1px solid rgba(99,102,241,0.3); resize:none; box-sizing:border-box; font-family:inherit;"></textarea>
+    </div>
+
+    <!-- Modal: AI 수정 결과 전체보기 (읽기 전용) -->
+    <div id="fullview-right-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:rgba(0,0,0,0.92); padding:40px; box-sizing:border-box; flex-direction:column;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+        <h3 style="margin:0; color:#6ee7b7; font-size:1.1rem; font-weight:700;">✨ AI 수정 결과 전체 보기 (읽기 전용)</h3>
+        <button id="fullview-right-close" style="background:rgba(255,255,255,0.08); color:#e0e0e0; border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:7px 16px; font-size:0.88rem; font-weight:600; cursor:pointer;">✕ 닫기</button>
+      </div>
+      <div id="fullview-right-content" style="width:100%; height:calc(100vh - 120px); background:rgba(15,15,30,0.85); color:#e0e0e0; font-size:1.05rem; line-height:1.9; padding:22px; border-radius:12px; border:1px solid rgba(46,204,64,0.3); box-sizing:border-box; overflow-y:auto; white-space:pre-wrap;"></div>
+    </div>
+
+    <!-- View All Overlay (TTS 읽기 모드) -->
     <div id="view-all-overlay" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,0.95); z-index:9000; display:flex; flex-direction:column; padding:60px; animation:animation-fade-in 0.3s;">
-       <div class="flex-between" style="margin-bottom:30px; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:20px;">
-         <h2 style="color:var(--accent); margin:0;">👁️ 대본 전체보기 (읽기 모드)</h2>
-         <div class="flex gap-16" style="align-items: center;">
-            <!-- TTS Controls in Overlay -->
-            <div class="flex gap-12" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 8px 20px; border-radius: 40px; align-items: center;">
-              <button id="view-all-tts-play" class="btn btn-sm btn-accent" style="padding: 6px 14px; font-size: 1rem; border-radius: 20px;">🔊 음성 듣기</button>
-              <button id="view-all-tts-stop" class="btn btn-sm btn-danger hidden" style="padding: 6px 14px; font-size: 1rem; border-radius: 20px;">⏹ 중지</button>
-              
-              <!-- Speed Selector -->
-              <div class="flex gap-4" style="background: rgba(0,0,0,0.3); padding: 2px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);">
-                <button class="speed-btn btn btn-sm" data-speed="1.0" style="padding: 4px 10px; font-size: 0.85rem; border-radius: 15px; background: var(--accent); color: white;">1.0x</button>
-                <button class="speed-btn btn btn-sm" data-speed="1.5" style="padding: 4px 10px; font-size: 0.85rem; border-radius: 15px; color: var(--text-muted); background: transparent;">1.5x</button>
-                <button class="speed-btn btn btn-sm" data-speed="2.0" style="padding: 4px 10px; font-size: 0.85rem; border-radius: 15px; color: var(--text-muted); background: transparent;">2.0x</button>
-              </div>
-
-              <div style="display: flex; align-items: center; gap: 8px; margin-left: 8px;">
-                <button id="view-all-tts-mute" style="background:none; border:none; cursor:pointer; font-size:1.2rem; padding:0;">🔈</button>
-                <input id="view-all-tts-volume" type="range" min="0" max="1" step="0.1" value="1" style="width: 80px; height: 6px; cursor: pointer;">
-              </div>
+      <div class="flex-between" style="margin-bottom:30px; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:20px;">
+        <h2 style="color:var(--accent); margin:0;">👁️ 대본 전체보기 (읽기 모드)</h2>
+        <div class="flex gap-16" style="align-items:center;">
+          <div class="flex gap-12" style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); padding:8px 20px; border-radius:40px; align-items:center;">
+            <button id="view-all-tts-play" class="btn btn-sm btn-accent" style="padding:6px 14px; font-size:1rem; border-radius:20px;">🔊 음성 듣기</button>
+            <button id="view-all-tts-stop" class="btn btn-sm btn-danger hidden" style="padding:6px 14px; font-size:1rem; border-radius:20px;">⏹ 중지</button>
+            <div class="flex gap-4" style="background:rgba(0,0,0,0.3); padding:2px; border-radius:20px; border:1px solid rgba(255,255,255,0.1);">
+              <button class="speed-btn btn btn-sm" data-speed="1.0" style="padding:4px 10px; font-size:0.85rem; border-radius:15px; background:var(--accent); color:white;">1.0x</button>
+              <button class="speed-btn btn btn-sm" data-speed="1.5" style="padding:4px 10px; font-size:0.85rem; border-radius:15px; color:var(--text-muted); background:transparent;">1.5x</button>
+              <button class="speed-btn btn btn-sm" data-speed="2.0" style="padding:4px 10px; font-size:0.85rem; border-radius:15px; color:var(--text-muted); background:transparent;">2.0x</button>
             </div>
-            <button id="close-view-all" class="btn btn-secondary" style="font-size:1.2rem; font-weight:800; padding:10px 24px; border-radius:30px;">❌ 창 닫기 (ESC)</button>
+            <div style="display:flex; align-items:center; gap:8px; margin-left:8px;">
+              <button id="view-all-tts-mute" style="background:none; border:none; cursor:pointer; font-size:1.2rem; padding:0;">🔈</button>
+              <input id="view-all-tts-volume" type="range" min="0" max="1" step="0.1" value="1" style="width:80px; height:6px; cursor:pointer;">
+            </div>
           </div>
-       </div>
-       <div id="view-all-text-container" style="flex:1; overflow-y:auto; font-size:1.6rem; line-height:2.2; color:var(--text-primary); white-space:pre-wrap; padding:0 40px; font-weight:500; text-align:left; max-width:1200px; margin:0 auto; width:100%;">
-       </div>
+          <button id="close-view-all" class="btn btn-secondary" style="font-size:1.2rem; font-weight:800; padding:10px 24px; border-radius:30px;">❌ 창 닫기 (ESC)</button>
+        </div>
+      </div>
+      <div id="view-all-text-container" style="flex:1; overflow-y:auto; font-size:1.6rem; line-height:2.2; color:var(--text-primary); white-space:pre-wrap; padding:0 40px; font-weight:500; text-align:left; max-width:1200px; margin:0 auto; width:100%;"></div>
     </div>
   `;
 
-    // ─── Panel Resizer Logic ─────────────────────────
-    const leftPanel = document.getElementById('left-panel');
-    const rightPanel = document.getElementById('right-panel');
-    const resizer = document.getElementById('panel-resizer');
+    // ─── DOM refs ───────────────────────────────────────────────
+    const instructionsInput  = document.getElementById('script-instructions');
+    const contentInput       = document.getElementById('script-content');
+    const diffViewer         = document.getElementById('diff-viewer');
+    const aiPlaceholder      = document.getElementById('ai-result-placeholder');
+    const diffCountLabel     = document.getElementById('diff-count-label');
+    const dropZone           = document.getElementById('drop-zone');
+    const dropOverlay        = document.getElementById('drop-overlay');
+    const startEditBtn       = document.getElementById('start-edit-btn');
+    const applyEditBtn       = document.getElementById('apply-edit-btn');
+    const revertEditBtn      = document.getElementById('revert-edit-btn');
+    const saveStatus         = document.getElementById('save-status');
+    const searchInput        = document.getElementById('script-search-input');
+    const searchBtn          = document.getElementById('search-next-btn');
+    const fileUploadBtn      = document.getElementById('file-upload-btn');
+    const fileInput          = document.getElementById('file-input-hidden');
+    const exportBtn          = document.getElementById('export-script-btn');
+    const exportAiBtn        = document.getElementById('export-ai-btn');
+    const newScriptBtn       = document.getElementById('new-script-btn');
+    const newHeaderBtn       = document.getElementById('new-header-btn');
+    const deleteBtn          = document.getElementById('delete-script-btn');
+    const listBtn            = document.getElementById('script-list-btn');
+    const viewAllBtn         = document.getElementById('view-all-btn');
+    const viewAllOverlay     = document.getElementById('view-all-overlay');
+    const viewAllText        = document.getElementById('view-all-text-container');
+    const closeViewAll       = document.getElementById('close-view-all');
+    const vaTtsPlay          = document.getElementById('view-all-tts-play');
+    const vaTtsStop          = document.getElementById('view-all-tts-stop');
+    const vaTtsVolume        = document.getElementById('view-all-tts-volume');
+    const vaTtsMute          = document.getElementById('view-all-tts-mute');
+    const vaSpeedBtns        = document.querySelectorAll('.speed-btn');
+    // Modals
+    const fullviewInstrModal    = document.getElementById('fullview-instr-modal');
+    const fullviewInstrTextarea = document.getElementById('fullview-instr-textarea');
+    const fullviewInstrClose    = document.getElementById('fullview-instr-close');
+    const fullviewInstrBtn      = document.getElementById('fullview-instr-btn');
+    const fullviewLeftModal     = document.getElementById('fullview-left-modal');
+    const fullviewLeftTextarea  = document.getElementById('fullview-left-textarea');
+    const fullviewLeftClose     = document.getElementById('fullview-left-close');
+    const fullviewLeftBtn       = document.getElementById('fullview-left-btn');
+    const fullviewRightModal    = document.getElementById('fullview-right-modal');
+    const fullviewRightContent  = document.getElementById('fullview-right-content');
+    const fullviewRightClose    = document.getElementById('fullview-right-close');
+    const fullviewRightBtn      = document.getElementById('fullview-right-btn');
 
-    // Restore saved width
-    const savedWidth = localStorage.getItem('editor_left_panel_width');
-    if (savedWidth && leftPanel) leftPanel.style.width = savedWidth;
-
-    let isResizing = false;
-    let startX = 0;
-    let startWidth = 0;
-
-    resizer.addEventListener('mousedown', (e) => {
-        isResizing = true;
-        startX = e.clientX;
-        startWidth = leftPanel.getBoundingClientRect().width;
-        resizer.style.background = 'var(--accent)';
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-        e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', (e) => {
-        if (!isResizing) return;
-        const container = leftPanel.parentElement;
-        const containerWidth = container.getBoundingClientRect().width;
-        const delta = e.clientX - startX;
-        let newWidth = startWidth + delta;
-        // Clamp between 150px and 55% of container
-        newWidth = Math.max(150, Math.min(newWidth, containerWidth * 0.55));
-        leftPanel.style.width = newWidth + 'px';
-    });
-
-    document.addEventListener('mouseup', () => {
-        if (!isResizing) return;
-        isResizing = false;
-        resizer.style.background = 'var(--border)';
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        // Persist width
-        localStorage.setItem('editor_left_panel_width', leftPanel.style.width);
-    });
-
-    // Hover effect
-    resizer.addEventListener('mouseenter', () => {
-        if (!isResizing) resizer.style.background = 'rgba(var(--accent-rgb), 0.5)';
-    });
-    resizer.addEventListener('mouseleave', () => {
-        if (!isResizing) resizer.style.background = 'var(--border)';
-    });
-    // ────────────────────────────────────────────────
-
-    const instructionsInput = document.getElementById('script-instructions');
-    const contentInput = document.getElementById('script-content');
-    const diffViewer = document.getElementById('diff-viewer');
-    const dropZone = document.getElementById('drop-zone');
-    const dropOverlay = document.getElementById('drop-overlay');
-    const exportBtn = document.getElementById('export-script-btn');
-    const listBtn = document.getElementById('script-list-btn');
-    const newBtn = document.getElementById('new-script-btn');
-    const deleteBtn = document.getElementById('delete-script-btn');
-    const startEditBtn = document.getElementById('start-edit-btn');
-    const stopEditBtn = document.getElementById('stop-edit-btn');
-    const viewBeforeBtn = document.getElementById('view-before-btn');
-    const viewAfterBtn = document.getElementById('view-after-btn');
-    const divider = document.getElementById('btn-divider');
-    const saveStatus = document.getElementById('save-status');
-    const searchInput = document.getElementById('script-search-input');
-    const searchBtn = document.getElementById('search-next-btn');
-    const fileUploadBtn = document.getElementById('file-upload-btn');
-    const fileInput = document.getElementById('file-input-hidden');
-    const viewAllBtn = document.getElementById('view-all-btn');
-    const viewAllOverlay = document.getElementById('view-all-overlay');
-    const viewAllText = document.getElementById('view-all-text-container');
-    const closeViewAll = document.getElementById('close-view-all');
-    const ttsPlayBtn = document.getElementById('tts-play-btn');
-    const ttsStopBtn = document.getElementById('tts-stop-btn');
-    const ttsVolume = document.getElementById('tts-volume');
-    const vaTtsPlay = document.getElementById('view-all-tts-play');
-    const vaTtsStop = document.getElementById('view-all-tts-stop');
-    const vaTtsVolume = document.getElementById('view-all-tts-volume');
-    const vaTtsMute = document.getElementById('view-all-tts-mute');
-    const vaSpeedBtns = document.querySelectorAll('.speed-btn');
-
-    let currentScriptId = null;
-    let autoSaveTimeout = null;
+    // ─── State ──────────────────────────────────────────────────
+    let currentScriptId     = null;
+    let autoSaveTimeout     = null;
     let originalTextForDiff = '';
-    let editedTextForDiff = '';
-    let currentChangeIndex = -1; // To track sequential navigation
-    let changeMarkers = []; // To store elements to scroll to
-    let searchMatches = [];
-    let currentSearchMatchIndex = -1;
-    let isInitializationInProgress = false; // To prevent auto-save during initial load
+    let editedTextForDiff   = '';
     let editAbortController = null;
+    let isEditing           = false;
+    // TTS
+    let currentSentenceIdx  = 0;
+    let sentencesGlobal     = [];
+    let ttsRate             = 1.0;
+    let isMuted             = false;
+    let lastVolume          = 1.0;
+    let isTtsSpeaking       = false;
+    let isChangingSpeed     = false;
 
-    // TTS Stable State
-    let currentSentenceIdx = 0;
-    let sentencesGlobal = [];
-    let ttsRate = 1.0;
-    let isMuted = false;
-    let lastVolume = 1.0;
-    let isTtsSpeaking = false;
-    let isChangingSpeed = false;
+    // ─── Helpers ────────────────────────────────────────────────
+    function setModalDisplay(el, show) {
+        el.style.display = show ? 'flex' : 'none';
+        document.body.style.overflow = show ? 'hidden' : '';
+    }
 
-    // Reset editor state to "New Script"
+    function clearAIResult() {
+        diffViewer.style.display = 'none';
+        aiPlaceholder.style.display = 'flex';
+        applyEditBtn.style.display = 'none';
+        revertEditBtn.style.display = 'none';
+        diffCountLabel.textContent = '수정된 구간: -';
+        originalTextForDiff = '';
+        editedTextForDiff   = '';
+    }
+
     function resetEditor(silent = false) {
         currentScriptId = null;
         contentInput.value = '';
         instructionsInput.value = '';
-        originalTextForDiff = '';
-        editedTextForDiff = '';
-
-        diffViewer.classList.add('hidden');
-        contentInput.classList.remove('hidden');
-        viewBeforeBtn.classList.add('hidden');
-        viewAfterBtn.classList.add('hidden');
-        if (divider) divider.style.display = 'none';
-
+        clearAIResult();
         deleteBtn.style.display = 'none';
         if (!silent) {
-            saveStatus.textContent = '새 대본 작성을 시작합니다.';
-            showToast('편집기가 초기화되었습니다 (새 대본 상태)', 'info');
+            saveStatus.textContent = '새 대본';
+            showToast('편집기가 초기화되었습니다.', 'info');
         }
         contentInput.focus();
     }
 
-    // Atomic Character Diff
-    function renderDiff(mode) {
-        const oldStr = originalTextForDiff || "";
-        const newStr = editedTextForDiff || "";
+    function setEditBtnStart() {
+        isEditing = false;
+        startEditBtn.textContent = '🚀 수정 시작';
+        startEditBtn.style.background = 'linear-gradient(135deg,#6366f1,#8b5cf6)';
+    }
+    function setEditBtnStop() {
+        isEditing = true;
+        startEditBtn.textContent = '⏹ 정지';
+        startEditBtn.style.background = 'linear-gradient(135deg,#ef4444,#dc2626)';
+    }
 
+    // ─── Diff Render ────────────────────────────────────────────
+    function renderDiff(oldStr, newStr) {
         const atomicDiff = [];
         let i = 0, j = 0;
         const MAX_ITER = (oldStr.length + newStr.length) * 2;
@@ -264,215 +255,173 @@ export async function renderEditor(container, { api, navigate }) {
                 atomicDiff.push({ type: 'equal', value: oldStr[i] });
                 i++; j++;
             } else {
-                let foundMatch = false;
-                const lookAhead = 20;
-                for (let k = 1; k <= lookAhead; k++) {
+                let found = false;
+                const look = 20;
+                for (let k = 1; k <= look; k++) {
                     if (i + k < oldStr.length && j < newStr.length && oldStr[i + k] === newStr[j]) {
-                        atomicDiff.push({ type: 'removed', value: oldStr[i] });
-                        i++; foundMatch = true; break;
+                        atomicDiff.push({ type: 'removed', value: oldStr[i] }); i++; found = true; break;
                     }
                     if (j + k < newStr.length && i < oldStr.length && oldStr[i] === newStr[j + k]) {
-                        atomicDiff.push({ type: 'added', value: newStr[j] });
-                        j++; foundMatch = true; break;
+                        atomicDiff.push({ type: 'added', value: newStr[j] }); j++; found = true; break;
                     }
                 }
-                if (!foundMatch) {
+                if (!found) {
                     if (i < oldStr.length) { atomicDiff.push({ type: 'removed', value: oldStr[i] }); i++; }
-                    if (j < newStr.length) { atomicDiff.push({ type: 'added', value: newStr[j] }); j++; }
+                    if (j < newStr.length) { atomicDiff.push({ type: 'added',   value: newStr[j] }); j++; }
                 }
             }
         }
 
-        const activeType = mode === 'before' ? 'removed' : 'added';
-        let filteredGroups = [];
+        // Keep equal + added only
+        let filtered = [];
         atomicDiff.forEach(a => {
-            if (a.type === 'equal' || a.type === activeType) {
-                if (filteredGroups.length > 0 && filteredGroups[filteredGroups.length - 1].type === a.type) {
-                    filteredGroups[filteredGroups.length - 1].value += a.value;
-                } else {
-                    filteredGroups.push({ type: a.type, value: a.value });
-                }
+            if (a.type === 'equal' || a.type === 'added') {
+                if (filtered.length > 0 && filtered[filtered.length - 1].type === a.type)
+                    filtered[filtered.length - 1].value += a.value;
+                else
+                    filtered.push({ type: a.type, value: a.value });
             }
         });
 
-        let finalGroups = [];
-        for (let k = 0; k < filteredGroups.length; k++) {
-            let current = filteredGroups[k];
-            if (current.type === activeType) {
-                while (k + 1 < filteredGroups.length) {
-                    let gap = filteredGroups[k + 1];
-                    let next = (k + 2 < filteredGroups.length) ? filteredGroups[k + 2] : null;
-                    const hasParagraphBreak = /\n\s*\n/.test(gap.value);
-                    const isSmallGap = gap.type === 'equal' && (gap.value.length < 12);
-                    const isOnlySymbols = gap.type === 'equal' && /^[ \t\n\r.,!?;:()]+$/.test(gap.value);
-
-                    if (!hasParagraphBreak && (isSmallGap || isOnlySymbols) && next && next.type === activeType) {
-                        current.value += gap.value + next.value;
-                        k += 2;
-                        continue;
+        // Merge nearby added segments
+        let final = [];
+        for (let k = 0; k < filtered.length; k++) {
+            let cur = filtered[k];
+            if (cur.type === 'added') {
+                while (k + 1 < filtered.length) {
+                    const gap  = filtered[k + 1];
+                    const next = (k + 2 < filtered.length) ? filtered[k + 2] : null;
+                    const para = /\n\s*\n/.test(gap.value);
+                    if (!para && gap.type === 'equal' && (gap.value.length < 12 || /^[ \t\n\r.,!?;:()]+$/.test(gap.value)) && next && next.type === 'added') {
+                        cur.value += gap.value + next.value; k += 2; continue;
                     }
                     break;
                 }
             }
-            finalGroups.push(current);
+            final.push(cur);
         }
 
         let html = '';
         let changeCount = 0;
-        finalGroups.forEach(segment => {
-            if (segment.type === 'equal') {
-                html += segment.value;
+        final.forEach(seg => {
+            if (seg.type === 'equal') {
+                html += seg.value;
             } else {
                 changeCount++;
-                const bg = mode === 'before' ? '#fff0f0' : '#f0fff4';
-                const color = mode === 'before' ? '#af0828' : '#1a7f37';
-                const deco = mode === 'before' ? 'text-decoration: line-through;' : 'border-bottom: 2px solid #1a7f37;';
-                html += `<span id="change-${changeCount}" class="diff-change" style="background-color: ${bg}; color: ${color}; font-weight: 800; ${deco} padding: 2px 0; margin: 0; scroll-margin-top: 100px;">${segment.value}</span>`;
+                html += `<span class="diff-change" style="background:rgba(46,204,64,0.1); border-bottom:2px solid #6ee7b7; color:#6ee7b7; font-weight:700; padding:1px 0;">${seg.value}</span>`;
             }
         });
 
-        diffViewer.innerHTML = html || (mode === 'before' ? oldStr : newStr);
-        diffViewer.classList.remove('hidden');
-        contentInput.classList.add('hidden');
-        currentChangeIndex = -1;
-        changeMarkers = Array.from(diffViewer.querySelectorAll('.diff-change'));
-        if (changeMarkers.length === 0) showToast('변경된 내용이 없습니다.', 'info');
+        diffViewer.innerHTML = html || newStr;
+        diffViewer.style.display = 'block';
+        aiPlaceholder.style.display = 'none';
+        applyEditBtn.style.display = 'block';
+        revertEditBtn.style.display = 'block';
+        diffCountLabel.textContent = `수정된 구간: ${changeCount}개`;
     }
 
-    function scrollToNextChange() {
-        if (changeMarkers.length === 0) return;
-        currentChangeIndex = (currentChangeIndex + 1) % changeMarkers.length;
-        const target = changeMarkers[currentChangeIndex];
-        if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            const originalBg = target.style.backgroundColor;
-            target.style.backgroundColor = target.style.color.includes('af0828') ? '#ffccd2' : '#c3f2cd';
-            setTimeout(() => { target.style.backgroundColor = originalBg; }, 1000);
-            showToast(`${currentChangeIndex + 1}번째 수정 위치로 이동`, 'info');
-        }
-    }
-
+    // ─── Edit Button ────────────────────────────────────────────
     startEditBtn.addEventListener('click', async () => {
+        if (isEditing) {
+            if (editAbortController) editAbortController.abort();
+            return;
+        }
         const content = contentInput.value.trim();
-        const instructions = instructionsInput.value.trim();
         if (!content) return showToast('대본 내용을 먼저 입력해주세요.', 'warning');
 
         editAbortController = new AbortController();
-        startEditBtn.disabled = true;
-        const originalBtnText = startEditBtn.textContent;
-        startEditBtn.textContent = '⏳ 수정 중...';
-        viewBeforeBtn.classList.add('hidden');
-        viewAfterBtn.classList.add('hidden');
-        if (divider) divider.style.display = 'none';
-        stopEditBtn.classList.remove('hidden');
+        setEditBtnStop();
+        clearAIResult();
+        aiPlaceholder.style.display = 'flex';
+        aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">⏳</div><div style="color:#a5b4fc; font-size:0.9rem; font-weight:600;">AI가 대본을 수정하고 있습니다...<br><span style="color:rgba(255,255,255,0.35); font-size:0.8rem;">잠시만 기다려주세요</span></div></div>`;
 
         try {
             originalTextForDiff = contentInput.value;
-            const data = await api.editScript(content, instructions, editAbortController.signal);
+            const data = await api.editScript(content, instructionsInput.value.trim(), editAbortController.signal);
             editedTextForDiff = data.content;
-            contentInput.value = editedTextForDiff;
+            renderDiff(originalTextForDiff, editedTextForDiff);
             showToast('대본 수정이 완료되었습니다!', 'success');
-            triggerAutoSave();
         } catch (err) {
-            if (err.name === 'AbortError') showToast('대본 수정을 중단하였습니다.', 'warning');
-            else showToast('수정 실패: ' + err.message, 'error');
-        } finally {
-            startEditBtn.disabled = false;
-            startEditBtn.textContent = originalBtnText;
-            stopEditBtn.classList.add('hidden');
-            if (originalTextForDiff && editedTextForDiff) {
-                viewBeforeBtn.classList.remove('hidden');
-                viewAfterBtn.classList.remove('hidden');
-                if (divider) divider.style.display = 'block';
+            if (err.name === 'AbortError') {
+                aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">⏹</div><div style="color:#a5b4fc; font-size:0.9rem; font-weight:600;">수정이 중단되었습니다.</div></div>`;
+                showToast('대본 수정을 중단하였습니다.', 'warning');
+            } else {
+                aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">❌</div><div style="color:#f87171; font-size:0.9rem; font-weight:600;">수정 실패: ${err.message}</div></div>`;
+                showToast('수정 실패: ' + err.message, 'error');
             }
+        } finally {
+            setEditBtnStart();
             editAbortController = null;
         }
     });
 
-    stopEditBtn.addEventListener('click', () => {
-        if (editAbortController) editAbortController.abort();
+    applyEditBtn.addEventListener('click', () => {
+        if (!editedTextForDiff) return;
+        contentInput.value = editedTextForDiff;
+        triggerAutoSave();
+        clearAIResult();
+        aiPlaceholder.style.display = 'flex';
+        aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">✅</div><div style="color:#6ee7b7; font-size:0.9rem; font-weight:600;">수정이 적용되었습니다!</div></div>`;
+        showToast('AI 수정이 원본에 적용되었습니다.', 'success');
     });
 
-    viewBeforeBtn.addEventListener('click', () => {
-        const isViewingDiff = !diffViewer.classList.contains('hidden');
-        const isActive = viewBeforeBtn.classList.contains('active-btn');
-        if (isViewingDiff && isActive) {
-            diffViewer.classList.add('hidden');
-            contentInput.classList.remove('hidden');
-            viewBeforeBtn.classList.remove('active-btn');
-            viewBeforeBtn.style.border = 'none';
-        } else {
-            renderDiff('before');
-            viewBeforeBtn.classList.add('active-btn');
-            viewAfterBtn.classList.remove('active-btn');
-            viewBeforeBtn.style.border = '3px solid white';
-            viewAfterBtn.style.border = 'none';
-        }
+    revertEditBtn.addEventListener('click', () => {
+        if (!originalTextForDiff) return;
+        contentInput.value = originalTextForDiff;
+        clearAIResult();
+        aiPlaceholder.style.display = 'flex';
+        aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">↩️</div><div style="color:#a5b4fc; font-size:0.9rem; font-weight:600;">원본으로 되돌렸습니다.</div></div>`;
+        showToast('원본으로 되돌렸습니다.', 'info');
     });
 
-    viewAfterBtn.addEventListener('click', () => {
-        const isViewingDiff = !diffViewer.classList.contains('hidden');
-        const isActive = viewAfterBtn.classList.contains('active-btn');
-        if (isViewingDiff && isActive) scrollToNextChange();
-        else {
-            renderDiff('after');
-            viewAfterBtn.classList.add('active-btn');
-            viewBeforeBtn.classList.remove('active-btn');
-            viewAfterBtn.style.border = '3px solid white';
-            viewBeforeBtn.style.border = 'none';
-        }
-    });
-
-    diffViewer.addEventListener('click', () => {
-        if (!diffViewer.classList.contains('hidden')) {
-            diffViewer.classList.add('hidden');
-            contentInput.classList.remove('hidden');
-            viewBeforeBtn.classList.remove('active-btn');
-            viewAfterBtn.classList.remove('active-btn');
-            viewBeforeBtn.style.border = 'none';
-            viewAfterBtn.style.border = 'none';
-        }
-    });
-
+    // ─── Search ─────────────────────────────────────────────────
     searchBtn.addEventListener('click', () => {
         const query = searchInput.value.trim();
         if (!query) return;
-        if (diffViewer.classList.contains('hidden')) {
-            const text = contentInput.value;
-            const index = text.indexOf(query, contentInput.selectionEnd);
-            const finalIndex = index !== -1 ? index : text.indexOf(query);
-            if (finalIndex !== -1) {
-                contentInput.focus();
-                contentInput.setSelectionRange(finalIndex, finalIndex + query.length);
-                contentInput.scrollTop = (text.substring(0, finalIndex).split('\n').length - 5) * 28;
-            } else showToast('찾는 내용이 없습니다.', 'warning');
-        } else if (window.find && !window.find(query)) showToast('찾는 내용이 없습니다.', 'warning');
+        const text = contentInput.value;
+        const from = contentInput.selectionEnd || 0;
+        const index = text.indexOf(query, from);
+        const finalIndex = index !== -1 ? index : text.indexOf(query);
+        if (finalIndex !== -1) {
+            contentInput.focus();
+            contentInput.setSelectionRange(finalIndex, finalIndex + query.length);
+            contentInput.scrollTop = (text.substring(0, finalIndex).split('\n').length - 5) * 28;
+        } else showToast('찾는 내용이 없습니다.', 'warning');
     });
+    searchInput.addEventListener('keypress', e => { if (e.key === 'Enter') searchBtn.click(); });
 
-    searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') searchBtn.click(); });
-
+    // ─── File Upload / Drag & Drop ───────────────────────────────
     fileUploadBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', (e) => {
+    fileInput.addEventListener('change', e => {
         const file = e.target.files[0];
         if (!file || !file.name.endsWith('.txt')) return showToast('.txt 파일만 가능합니다.', 'warning');
         const reader = new FileReader();
-        reader.onload = (event) => {
-            resetEditor();
-            contentInput.value = event.target.result;
-            showToast('파일을 불러왔습니다.', 'success');
-            triggerAutoSave();
-        };
+        reader.onload = ev => { resetEditor(true); contentInput.value = ev.target.result; showToast('파일을 불러왔습니다.', 'success'); triggerAutoSave(); };
         reader.readAsText(file);
         fileInput.value = '';
     });
 
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropOverlay.style.display = 'flex'; });
+    dropZone.addEventListener('dragleave', () => { dropOverlay.style.display = 'none'; });
+    dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropOverlay.style.display = 'none';
+        const file = e.dataTransfer.files[0];
+        if (!file || !file.name.endsWith('.txt')) return showToast('.txt 파일만 가능합니다.', 'warning');
+        const reader = new FileReader();
+        reader.onload = ev => { resetEditor(true); contentInput.value = ev.target.result; showToast('파일을 불러왔습니다.', 'success'); triggerAutoSave(); };
+        reader.readAsText(file);
+    });
+
+    // ─── Save / Load ─────────────────────────────────────────────
     async function loadScript(id) {
         try {
             const script = await api.getScript(id);
             currentScriptId = script.id;
             contentInput.value = script.content || '';
-            deleteBtn.style.display = 'inline-flex';
-            saveStatus.textContent = '대본을 불러왔습니다.';
+            clearAIResult();
+            deleteBtn.style.display = 'block';
+            saveStatus.textContent = '불러옴';
             window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (err) { showToast('로드 실패: ' + err.message, 'error'); }
     }
@@ -484,12 +433,12 @@ export async function renderEditor(container, { api, navigate }) {
         try {
             if (currentScriptId) await api.updateScript(currentScriptId, { title, content });
             else {
-                const newScript = await api.addScript({ title, content });
-                currentScriptId = newScript.id;
-                deleteBtn.style.display = 'inline-flex';
+                const s = await api.addScript({ title, content });
+                currentScriptId = s.id;
+                deleteBtn.style.display = 'block';
             }
-            saveStatus.textContent = `저장됨: ${new Date().toLocaleTimeString()}`;
-        } catch (err) { saveStatus.textContent = '❌ 저장 실패'; }
+            saveStatus.textContent = `저장됨 ${new Date().toLocaleTimeString()}`;
+        } catch { saveStatus.textContent = '❌ 저장 실패'; }
     }
 
     function triggerAutoSave() {
@@ -498,219 +447,181 @@ export async function renderEditor(container, { api, navigate }) {
     }
     contentInput.addEventListener('input', triggerAutoSave);
 
+    // ─── Export ──────────────────────────────────────────────────
     exportBtn.addEventListener('click', () => {
         const content = contentInput.value.trim();
         if (!content) return;
-        const fileName = `${content.split('\n')[0].substring(0, 20) || '제목없음'} 편집완료.txt`;
-        const blob = new Blob([content], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = fileName; a.click();
-        URL.revokeObjectURL(url);
+        const name = `${content.split('\n')[0].substring(0, 20) || '제목없음'} 편집완료.txt`;
+        const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([content], { type: 'text/plain' })), download: name });
+        a.click(); URL.revokeObjectURL(a.href);
         saveScript();
     });
 
-    newBtn.addEventListener('click', () => resetEditor());
-    deleteBtn.addEventListener('click', async () => {
-        if (!confirm('삭제하시겠습니까?')) return;
-        try {
-            await api.deleteScript(currentScriptId);
-            newBtn.click();
-        } catch (err) { showToast('삭제 실패', 'error'); }
+    exportAiBtn.addEventListener('click', () => {
+        const content = editedTextForDiff || (diffViewer.style.display !== 'none' ? diffViewer.innerText : '');
+        if (!content) return showToast('AI 수정 결과가 없습니다.', 'info');
+        const name = `AI수정본_${new Date().toLocaleDateString()}.txt`;
+        const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([content], { type: 'text/plain' })), download: name });
+        a.click(); URL.revokeObjectURL(a.href);
     });
 
-    // --- [View All Logic] ---
+    // ─── New / Delete ────────────────────────────────────────────
+    newScriptBtn.addEventListener('click', () => resetEditor());
+    newHeaderBtn.addEventListener('click', () => resetEditor());
+    deleteBtn.addEventListener('click', async () => {
+        if (!confirm('삭제하시겠습니까?')) return;
+        try { await api.deleteScript(currentScriptId); resetEditor(); }
+        catch { showToast('삭제 실패', 'error'); }
+    });
+
+    // ─── Script List ─────────────────────────────────────────────
+    listBtn.addEventListener('click', async () => {
+        try {
+            const scripts = await api.getScripts();
+            if (!scripts.length) return showToast('저장된 대본이 없습니다.', 'info');
+            showModal('내 대본 목록', `<div style="max-height:400px; overflow-y:auto; padding:10px;">${scripts.map(s => `<div class="list-item script-item" data-id="${s.id}" style="padding:14px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; justify-content:space-between; align-items:center;"><div><div style="font-weight:700; font-size:1rem; color:var(--text-primary);">${s.title}</div><div style="font-size:0.85rem; color:var(--text-muted); margin-top:3px;">최종 수정: ${new Date(s.updated_at).toLocaleString()}</div></div><span>➡️</span></div>`).join('')}</div>`, []);
+            document.querySelectorAll('.script-item').forEach(el => {
+                el.addEventListener('click', () => { loadScript(el.dataset.id); document.getElementById('modal-overlay').classList.add('hidden'); });
+            });
+        } catch { showToast('목록 로드 실패', 'error'); }
+    });
+
+    // ─── Fullview Modals ─────────────────────────────────────────
+    fullviewInstrBtn.addEventListener('click', () => {
+        fullviewInstrTextarea.value = instructionsInput.value;
+        setModalDisplay(fullviewInstrModal, true);
+        fullviewInstrTextarea.focus();
+    });
+    fullviewInstrClose.addEventListener('click', () => {
+        instructionsInput.value = fullviewInstrTextarea.value;
+        setModalDisplay(fullviewInstrModal, false);
+    });
+    fullviewInstrTextarea.addEventListener('input', () => { instructionsInput.value = fullviewInstrTextarea.value; });
+
+    fullviewLeftBtn.addEventListener('click', () => {
+        fullviewLeftTextarea.value = contentInput.value;
+        setModalDisplay(fullviewLeftModal, true);
+        fullviewLeftTextarea.focus();
+    });
+    fullviewLeftClose.addEventListener('click', () => {
+        contentInput.value = fullviewLeftTextarea.value;
+        triggerAutoSave();
+        setModalDisplay(fullviewLeftModal, false);
+    });
+    fullviewLeftTextarea.addEventListener('input', () => { contentInput.value = fullviewLeftTextarea.value; triggerAutoSave(); });
+
+    fullviewRightBtn.addEventListener('click', () => {
+        if (diffViewer.style.display === 'none') return showToast('AI 수정 결과가 없습니다.', 'info');
+        fullviewRightContent.innerHTML = diffViewer.innerHTML;
+        setModalDisplay(fullviewRightModal, true);
+    });
+    fullviewRightClose.addEventListener('click', () => setModalDisplay(fullviewRightModal, false));
+
+    // ─── View All (TTS mode) ─────────────────────────────────────
     function openViewAll() {
         const content = contentInput.value.trim();
         if (!content) return showToast('내용이 없습니다.', 'warning');
         sentencesGlobal = content.split(/([.?!]\s+)/).reduce((acc, part, i) => {
-            if (i % 2 === 0) acc.push(part);
-            else acc[acc.length - 1] += part;
-            return acc;
+            if (i % 2 === 0) acc.push(part); else acc[acc.length - 1] += part; return acc;
         }, []);
-        viewAllText.innerHTML = sentencesGlobal.map((s, idx) => `<span class="tts-sentence" data-idx="${idx}" style="cursor: pointer; transition: background 0.3s; border-radius: 4px;">${s}</span>`).join('');
+        viewAllText.innerHTML = sentencesGlobal.map((s, idx) => `<span class="tts-sentence" data-idx="${idx}" style="cursor:pointer; transition:background 0.3s; border-radius:4px;">${s}</span>`).join('');
         viewAllText.querySelectorAll('.tts-sentence').forEach(span => {
-            span.addEventListener('click', () => {
-                currentSentenceIdx = parseInt(span.dataset.idx);
-                if (isTtsSpeaking) speakCurrentSentence();
-                else startTTS();
-            });
+            span.addEventListener('click', () => { currentSentenceIdx = parseInt(span.dataset.idx); if (isTtsSpeaking) speakCurrentSentence(); else startTTS(); });
         });
         viewAllOverlay.classList.remove('hidden');
         document.body.style.overflow = 'hidden';
     }
-
-    function closeViewAllFunc() {
-        stopTTS();
-        viewAllOverlay.classList.add('hidden');
-        document.body.style.overflow = '';
-    }
+    function closeViewAllFunc() { stopTTS(); viewAllOverlay.classList.add('hidden'); document.body.style.overflow = ''; }
     viewAllBtn.addEventListener('click', openViewAll);
     closeViewAll.addEventListener('click', closeViewAllFunc);
 
-    const handleGlobalKeyDown = (e) => {
-        if (e.key === 'Escape' && !viewAllOverlay.classList.contains('hidden')) closeViewAllFunc();
-        if (e.key === ' ' && !viewAllOverlay.classList.contains('hidden')) {
-            if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-            e.preventDefault();
-            if (isTtsSpeaking) {
-                if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-                else window.speechSynthesis.pause();
-            } else startTTS();
-        }
-    };
-    document.addEventListener('keydown', handleGlobalKeyDown);
-
-    // --- [TTS Logic] ---
-    function getKoreanFemaleVoice() {
+    // ─── TTS ─────────────────────────────────────────────────────
+    function getKoreanVoice() {
         const voices = window.speechSynthesis.getVoices();
         return voices.find(v => v.lang.startsWith('ko') && (v.name.includes('Female') || v.name.includes('Heami') || v.name.includes('다혜') || v.name.includes('유미')))
             || voices.find(v => v.lang.startsWith('ko')) || null;
     }
-
     function updateTTSButtons(speaking) {
-        ttsPlayBtn.classList.toggle('hidden', speaking);
-        ttsStopBtn.classList.toggle('hidden', !speaking);
         if (vaTtsPlay) vaTtsPlay.classList.toggle('hidden', speaking);
         if (vaTtsStop) vaTtsStop.classList.toggle('hidden', !speaking);
     }
-
-    function startTTS() {
-        if (sentencesGlobal.length === 0) openViewAll(); // Pre-process if needed
-        isTtsSpeaking = true;
-        updateTTSButtons(true);
-        speakCurrentSentence();
-    }
-
+    function startTTS() { if (!sentencesGlobal.length) openViewAll(); isTtsSpeaking = true; updateTTSButtons(true); speakCurrentSentence(); }
     function speakCurrentSentence() {
         if (!isTtsSpeaking || currentSentenceIdx >= sentencesGlobal.length) {
-            isTtsSpeaking = false;
-            updateTTSButtons(false);
-            if (currentSentenceIdx >= sentencesGlobal.length) {
-                currentSentenceIdx = 0;
-                viewAllText.querySelectorAll('.tts-sentence').forEach(s => s.style.background = 'transparent');
-            }
+            isTtsSpeaking = false; updateTTSButtons(false);
+            if (currentSentenceIdx >= sentencesGlobal.length) { currentSentenceIdx = 0; viewAllText.querySelectorAll('.tts-sentence').forEach(s => s.style.background = 'transparent'); }
             return;
         }
         const text = sentencesGlobal[currentSentenceIdx];
-        if (!text || !text.trim()) {
-            currentSentenceIdx++;
-            return speakCurrentSentence();
-        }
-
-        // Cancel pending but don't call speakCurrentSentence recursively from here to avoid loops
-        // Only the actual speed button listener should trigger the restart via cancel + onend
+        if (!text?.trim()) { currentSentenceIdx++; return speakCurrentSentence(); }
         window.speechSynthesis.cancel();
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        const voice = getKoreanFemaleVoice();
-        if (voice) utterance.voice = voice;
-        utterance.rate = ttsRate;
-        utterance.pitch = 1.1;
-        utterance.volume = isMuted ? 0 : parseFloat(vaTtsVolume.value || ttsVolume.value);
-
-        utterance.onstart = () => {
-            const targetSpan = viewAllText.querySelector(`.tts-sentence[data-idx="${currentSentenceIdx}"]`);
-            if (targetSpan) {
-                viewAllText.querySelectorAll('.tts-sentence').forEach(s => s.style.background = 'transparent');
-                targetSpan.style.background = 'rgba(var(--accent-rgb), 0.25)';
-                targetSpan.scrollIntoView({ behavior: ttsRate > 1.2 ? 'auto' : 'smooth', block: 'center' });
-            }
+        const utt = new SpeechSynthesisUtterance(text);
+        const voice = getKoreanVoice();
+        if (voice) utt.voice = voice;
+        utt.rate = ttsRate; utt.pitch = 1.1;
+        utt.volume = isMuted ? 0 : parseFloat(vaTtsVolume?.value || 1);
+        utt.onstart = () => {
+            const span = viewAllText.querySelector(`.tts-sentence[data-idx="${currentSentenceIdx}"]`);
+            if (span) { viewAllText.querySelectorAll('.tts-sentence').forEach(s => s.style.background = 'transparent'); span.style.background = 'rgba(var(--accent-rgb),0.25)'; span.scrollIntoView({ behavior: ttsRate > 1.2 ? 'auto' : 'smooth', block: 'center' }); }
         };
-
-        utterance.onend = () => {
-            if (!isTtsSpeaking) return;
-            if (isChangingSpeed) {
-                isChangingSpeed = false;
-                speakCurrentSentence(); // Re-read current sentence with new rate
-            } else {
-                currentSentenceIdx++;
-                speakCurrentSentence();
-            }
-        };
-
-        utterance.onerror = (e) => {
-            if (e.error === 'interrupted' || e.error === 'canceled') {
-                if (isTtsSpeaking && isChangingSpeed) {
-                    isChangingSpeed = false;
-                    speakCurrentSentence();
-                }
-            } else {
-                isTtsSpeaking = false;
-                updateTTSButtons(false);
-            }
-        };
-
-        window.speechSynthesis.speak(utterance);
+        utt.onend = () => { if (!isTtsSpeaking) return; if (isChangingSpeed) { isChangingSpeed = false; speakCurrentSentence(); } else { currentSentenceIdx++; speakCurrentSentence(); } };
+        utt.onerror = e => { if ((e.error === 'interrupted' || e.error === 'canceled') && isTtsSpeaking && isChangingSpeed) { isChangingSpeed = false; speakCurrentSentence(); } else { isTtsSpeaking = false; updateTTSButtons(false); } };
+        window.speechSynthesis.speak(utt);
     }
-
     function stopTTS() { isTtsSpeaking = false; window.speechSynthesis.cancel(); updateTTSButtons(false); }
-
-    ttsPlayBtn.addEventListener('click', startTTS);
-    ttsStopBtn.addEventListener('click', stopTTS);
     if (vaTtsPlay) vaTtsPlay.addEventListener('click', startTTS);
     if (vaTtsStop) vaTtsStop.addEventListener('click', stopTTS);
 
-    const syncVolume = (e) => {
-        const val = e.target.value;
-        if (ttsVolume) ttsVolume.value = val;
-        if (vaTtsVolume) vaTtsVolume.value = val;
-        if (val > 0) isMuted = false;
-        updateMuteUI();
-        if (isTtsSpeaking) {
-            isChangingSpeed = true;
-            window.speechSynthesis.cancel();
-        }
-    };
-    ttsVolume.addEventListener('input', syncVolume);
-    if (vaTtsVolume) vaTtsVolume.addEventListener('input', syncVolume);
-
-    function updateMuteUI() {
-        if (!vaTtsMute) return;
-        vaTtsMute.textContent = (isMuted || (vaTtsVolume && parseFloat(vaTtsVolume.value) === 0)) ? '🔇' : '🔈';
+    if (vaTtsVolume) {
+        vaTtsVolume.addEventListener('input', e => {
+            if (parseFloat(e.target.value) > 0) isMuted = false;
+            updateMuteUI();
+            if (isTtsSpeaking) { isChangingSpeed = true; window.speechSynthesis.cancel(); }
+        });
     }
-
+    function updateMuteUI() { if (vaTtsMute) vaTtsMute.textContent = (isMuted || parseFloat(vaTtsVolume?.value || 1) === 0) ? '🔇' : '🔈'; }
     if (vaTtsMute) {
         vaTtsMute.addEventListener('click', () => {
             isMuted = !isMuted;
-            if (isMuted) { lastVolume = parseFloat(vaTtsVolume.value) || 1.0; vaTtsVolume.value = 0; if (ttsVolume) ttsVolume.value = 0; }
-            else { vaTtsVolume.value = lastVolume; if (ttsVolume) ttsVolume.value = lastVolume; }
+            if (isMuted) { lastVolume = parseFloat(vaTtsVolume.value) || 1; vaTtsVolume.value = 0; }
+            else { vaTtsVolume.value = lastVolume; }
             updateMuteUI();
-            if (isTtsSpeaking) {
-                isChangingSpeed = true;
-                window.speechSynthesis.cancel();
-            }
+            if (isTtsSpeaking) { isChangingSpeed = true; window.speechSynthesis.cancel(); }
         });
     }
-
     vaSpeedBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             ttsRate = parseFloat(btn.dataset.speed);
             vaSpeedBtns.forEach(b => { b.style.background = 'transparent'; b.style.color = 'var(--text-muted)'; });
             btn.style.background = 'var(--accent)'; btn.style.color = 'white';
-            if (isTtsSpeaking) {
-                isChangingSpeed = true;
-                window.speechSynthesis.cancel();
-            }
+            if (isTtsSpeaking) { isChangingSpeed = true; window.speechSynthesis.cancel(); }
         });
     });
 
-    listBtn.addEventListener('click', async () => {
-        try {
-            const scripts = await api.getScripts();
-            if (scripts.length === 0) return showToast('저장된 대본이 없습니다.', 'info');
-            showModal('내 대본 목록', `<div style="max-height:400px; overflow-y:auto; padding:10px;">${scripts.map(s => `<div class="list-item script-item" data-id="${s.id}" style="padding:16px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; justify-content:space-between; align-items:center;"><div><div style="font-weight:800; font-size:1.15rem; color:var(--text-primary);">${s.title}</div><div style="font-size:0.95rem; color:var(--text-muted); margin-top:4px;">최종 수정: ${new Date(s.updated_at).toLocaleString()}</div></div><span class="icon">➡️</span></div>`).join('')}</div>`, []);
-            document.querySelectorAll('.script-item').forEach(el => { el.addEventListener('click', () => { loadScript(el.dataset.id); document.getElementById('modal-overlay').classList.add('hidden'); }); });
-        } catch (err) { showToast('목록 로드 실패', 'error'); }
+    // ─── Global Keyboard ─────────────────────────────────────────
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            if (fullviewInstrModal.style.display === 'flex')  { instructionsInput.value = fullviewInstrTextarea.value; setModalDisplay(fullviewInstrModal, false); return; }
+            if (fullviewLeftModal.style.display  === 'flex')  { contentInput.value = fullviewLeftTextarea.value; triggerAutoSave(); setModalDisplay(fullviewLeftModal, false); return; }
+            if (fullviewRightModal.style.display === 'flex')  { setModalDisplay(fullviewRightModal, false); return; }
+            if (!viewAllOverlay.classList.contains('hidden')) { closeViewAllFunc(); return; }
+        }
+        if (e.key === ' ' && !viewAllOverlay.classList.contains('hidden')) {
+            if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+            e.preventDefault();
+            if (isTtsSpeaking) { if (window.speechSynthesis.paused) window.speechSynthesis.resume(); else window.speechSynthesis.pause(); }
+            else startTTS();
+        }
     });
 
+    // ─── URL Params (load from idea / video) ─────────────────────
     const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
     if (urlParams.get('ideaId')) {
         try {
             const ideas = await api.getIdeas();
             const idea = ideas.find(i => String(i.id) === String(urlParams.get('ideaId')));
-            if (idea) { resetEditor(true); contentInput.value = (idea.notes || idea.description || ''); saveStatus.textContent = '아이디어에서 불러옴'; }
-        } catch (e) { }
+            if (idea) { resetEditor(true); contentInput.value = idea.notes || idea.description || ''; saveStatus.textContent = '아이디어에서 불러옴'; }
+        } catch {}
     } else if (urlParams.get('source') === 'video') {
         const pc = localStorage.getItem('pending_script_content');
         if (pc) { resetEditor(true); contentInput.value = pc; saveStatus.textContent = '영상 대본에서 불러옴'; localStorage.removeItem('pending_script_content'); }
