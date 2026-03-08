@@ -19,7 +19,7 @@ const updateStoredState = (patch) => {
 export async function renderGaps(container, { api }) {
   container.innerHTML = `
     <div class="page-header">
-      <h2>🎯 AI 갭 분석 & 트렌드 인사이트</h2>
+      <h2>🎯 AI 경쟁 분석 & 차별화 전략</h2>
       <p>데이터 속에 숨겨진 틈새를 발견하고 차별화된 영상 기획안을 도출하세요</p>
     </div>
 
@@ -27,7 +27,7 @@ export async function renderGaps(container, { api }) {
     <div class="flex gap-12 mb-24" id="gap-tabs" style="background:rgba(255,255,255,0.03); padding:6px; border-radius:12px; border:1px solid rgba(255,255,255,0.05);">
       <button class="btn btn-secondary active-tab" data-mode="yadam" style="flex:1.2; font-weight:800; font-size:1rem; padding:12px;">🏮 야담 전용 분석</button>
       <button class="btn btn-secondary" data-mode="economy" style="flex:1; font-weight:700;">📈 경제 트렌드</button>
-      <button class="btn btn-secondary" data-mode="custom" style="flex:1; font-weight:700;">📊 맞춤형 갭 분석</button>
+      <button class="btn btn-secondary" data-mode="custom" style="flex:1; font-weight:700;">📊 맞춤형 경쟁 분석</button>
     </div>
 
     <div class="card mb-24 hidden" id="custom-selector-card">
@@ -183,7 +183,7 @@ export async function renderGaps(container, { api }) {
     const deepArea = document.getElementById('deep-analysis-area');
     if (deepArea) deepArea.innerHTML = '';
 
-    yadamCont.innerHTML = '<div class="flex-center" style="padding:60px; flex-direction:column; gap:16px;"><div class="spinner"></div><span style="font-weight:700; color:var(--accent);">조선 야담 기회 영역 종합 분석 중...</span></div>';
+    yadamCont.innerHTML = '<div class="flex-center" style="padding:60px; flex-direction:column; gap:16px;"><div class="spinner"></div><span style="font-weight:700; color:var(--accent);">조선 야담 인기 주제 분석 중...</span></div>';
     try {
       const data = await api.getYadamGaps();
 
@@ -454,9 +454,12 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
             <h4 style="color:#e2e8f0; font-size:16px; margin-bottom:0;">📊 요약 분석</h4>
             <p style="color:#94a3b8; text-align:center; margin-top:70px;">분석을 실행하면 카테고리별 분포가<br>여기에 표시됩니다.</p>
           ` : `
-          <div class="flex-between mb-16">
-            <h4>📊 요약 분석</h4>
+          <div class="flex-between mb-8">
+            <h4>📊 인기 주제 분포</h4>
           </div>
+          <p style="font-size:0.78rem; color:var(--text-muted); margin-bottom:16px;">
+            영상이 많을수록 시청자 수요가 검증된 인기 주제입니다. 클릭하여 차별화 전략을 확인하세요.
+          </p>
           <div class="compact-view" style="display:flex; flex-direction:column; gap:30px;">
             ${rows.map(r => `
               <div class="compact-row" style="background:rgba(255,255,255,0.02); padding:15px; border-radius:16px;">
@@ -488,7 +491,7 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
             <div class="chart-container">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:10px;">
                 <div style="font-size:0.9rem; font-weight:700; color:var(--text-secondary);">
-                  💡 AI 추천 주제 (클릭하여 대본 뼈대 생성)
+                  🔥 인기 주제 Top (클릭하여 차별화 전략 분석)
                 </div>
                 <button class="card-magnify-btn" style="position:static;" onclick="toggleListMagnify(this)">
                   🔍 글씨 전체 크게
@@ -524,17 +527,17 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
                             </div>
                           </div>
                           <div style="text-align:right; min-width:80px;">
-                            <div style="font-size:0.7rem; color:var(--text-muted); font-weight:700; margin-bottom:4px;">빈틈률</div>
-                            <div style="font-size:1.2rem; font-weight:900; color:${s.gap_rate > 80 ? 'var(--success)' : 'var(--accent)'};">
+                            <div style="font-size:0.7rem; color:var(--text-muted); font-weight:700; margin-bottom:4px;">인기도</div>
+                            <div style="font-size:1.2rem; font-weight:900; color:${(s.gap_rate || 0) > 60 ? '#f97316' : 'var(--accent)'};">
                               ${s.gap_rate || 0}%
                             </div>
                           </div>
                         </div>
                         <div style="height:6px; background:rgba(255,255,255,0.05); border-radius:3px; margin-bottom:12px; overflow:hidden;">
-                          <div style="height:100%; width:${s.gap_rate || 0}%; background: ${s.gap_rate > 80 ? 'var(--success)' : 'var(--accent)'}; transition: width 1s ease-out;"></div>
+                          <div style="height:100%; width:${s.gap_rate || 0}%; background: ${(s.gap_rate || 0) > 60 ? '#f97316' : 'var(--accent)'}; transition: width 1s ease-out;"></div>
                         </div>
                         <div style="font-size:0.83rem; line-height:1.5; color:var(--text-secondary); border-top:1px solid rgba(255,255,255,0.05); padding-top:10px;">
-                          <span style="color:var(--accent); font-weight:700; margin-right:4px;">Why?</span> ${s.description || s.reason || '-'}
+                          <span style="color:var(--accent); font-weight:700; margin-right:4px;">📊</span> ${s.description || s.reason || (s.count ? `이 주제는 영상 ${s.count}개가 존재하는 인기 주제입니다.` : '-')}
                         </div>
                         <div class="script-plan-loading mt-16" style="display:none; text-align:center;">
                           <div class="spinner-sm mb-8" style="margin:0 auto;"></div>
@@ -739,7 +742,7 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
 
 
 function renderSubCategoryCards(deepArea, detail, catX, catY, count, meta, api) {
-  const levelLabel = { 1: '매우 여유', 2: '여유', 3: '중간', 4: '포화', 5: '매우 포화' };
+  const levelLabel = { 1: '수요 미검증', 2: '소규모 경쟁', 3: '중간 경쟁', 4: '인기 주제', 5: '경쟁 매우 높음 (차별화 필요)' };
   const levelColor = { 1: '#22c55e', 2: '#4ade80', 3: '#eab308', 4: '#f97316', 5: '#ef4444' };
 
   let html = `
@@ -1012,7 +1015,7 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
                   </div>
                 </div>
                 <div style="text-align:right; min-width:100px;">
-                  <div style="font-size:1rem; color:var(--text-muted); font-weight:700; margin-bottom:6px;">빈틈률</div>
+                  <div style="font-size:1rem; color:var(--text-muted); font-weight:700; margin-bottom:6px;">차별화 지수</div>
                   <div style="font-size:1.6rem; font-weight:900; color:${s.gap_rate > 80 ? 'var(--success)' : 'var(--accent)'};">
                     ${s.gap_rate || 0}%
                   </div>

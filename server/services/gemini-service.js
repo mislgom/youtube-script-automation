@@ -839,7 +839,7 @@ ${yadamBoldInstruction}
     // 포화도 현황 삽입
     if (meta?.saturationData && meta.saturationData.length > 0) {
         const levelLabel = { 1: '매우 여유', 2: '여유', 3: '보통', 4: '포화', 5: '매우 포화' };
-        prompt += '\n\n[카테고리별 포화도 현황 - 포화된 조합은 피하고, 여유 있는 조합을 활용하여 차별화된 주제를 추천하세요]\n';
+        prompt += '\n\n[카테고리별 포화도 현황 - 인기 주제(포화된 조합)를 우선 타겟으로, 그 안에서 기존 영상과 완전히 다른 각도의 차별화 주제를 추천하세요]\n';
         for (const group of meta.saturationData) {
             const items = group.cells
                 .map(c => `${c.label} ${c.count}개(${levelLabel[c.level] || '보통'})`)

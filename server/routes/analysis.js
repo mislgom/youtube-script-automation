@@ -229,10 +229,45 @@ router.get('/gaps/yadam', async (req, res) => {
             dropReason = 'NO_VIDEOS';
         }
 
+        // 인기 주제 suggestions: 영상 수 상위 10개 셀
+        const topCells = (matrix.gaps || []).filter(g => g.count > 0).slice(0, 10);
+        const suggestions = topCells.map(g => {
+            let sampleVideos = [];
+            try {
+                const { eraId, eventId, sourceId } = g.meta || {};
+                const conds = [];
+                const params = [];
+                if (eraId) { conds.push('EXISTS (SELECT 1 FROM video_categories WHERE video_id = v.id AND category_id = ?)'); params.push(eraId); }
+                if (eventId) { conds.push('EXISTS (SELECT 1 FROM video_categories WHERE video_id = v.id AND category_id = ?)'); params.push(eventId); }
+                if (sourceId) { conds.push('EXISTS (SELECT 1 FROM video_categories WHERE video_id = v.id AND category_id = ?)'); params.push(sourceId); }
+                if (conds.length > 0) {
+                    sampleVideos = queryAll(
+                        `SELECT v.title, v.view_count FROM videos v WHERE ${conds.join(' AND ')} ORDER BY v.view_count DESC LIMIT 5`,
+                        params
+                    );
+                }
+            } catch (e) { /* skip */ }
+            const avgViewCount = sampleVideos.length > 0
+                ? Math.round(sampleVideos.reduce((s, v) => s + (v.view_count || 0), 0) / sampleVideos.length)
+                : 0;
+            return {
+                title: g.x,
+                catX: g.x,
+                catY: g.y,
+                count: g.count,
+                level: g.level,
+                gap_rate: Math.round(g.level / 5 * 100),
+                analyzed_video_count: g.count,
+                avg_view_count: avgViewCount,
+                sample_titles: sampleVideos.slice(0, 3).map(v => v.title),
+                reason: `이 주제는 떡상 영상 ${g.count}개가 존재하는 인기 주제입니다. 차별화된 대본으로 경쟁력을 확보하세요.`,
+            };
+        });
+
         // 1단계: 분포도 중심 응답 (Stage 1: Distribution View)
         res.json({
             ...matrix,
-            suggestions: [],
+            suggestions,
             dna_analysis: '',
             externalSourceCount: externalVideos.length,
             isHybrid: true,
