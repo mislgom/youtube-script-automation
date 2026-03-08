@@ -1108,4 +1108,49 @@ router.post('/background-stop', (req, res) => {
     res.json({ ok: true, status: getBackgroundStatus() });
 });
 
+// POST /api/analysis/spellcheck — 맞춤법/띄어쓰기 검사
+router.post('/spellcheck', async (req, res) => {
+    try {
+        const { text } = req.body;
+        if (!text) return res.status(400).json({ error: '텍스트를 입력해주세요.' });
+
+        const prompt = `당신은 한국어 맞춤법 및 띄어쓰기 전문가입니다.
+
+아래 대본 텍스트의 오타, 맞춤법 오류, 띄어쓰기 오류만 수정해주세요.
+문장 구조, 표현, 내용은 절대 변경하지 마세요.
+
+반드시 아래 JSON 형식으로 응답하세요:
+{
+  "corrected_text": "수정된 전체 텍스트",
+  "corrections": [
+    {
+      "original": "원래 단어/구문",
+      "corrected": "수정된 단어/구문",
+      "type": "오타|띄어쓰기|맞춤법",
+      "reason": "수정 이유"
+    }
+  ],
+  "total_corrections": 숫자
+}
+
+수정할 부분이 없으면 corrections를 빈 배열로 반환하세요.
+
+대본 텍스트:
+${text}`;
+
+        const raw = await callGemini(prompt, { jsonMode: true });
+        if (!raw) return res.status(503).json({ error: 'API 키가 설정되지 않았습니다.' });
+
+        let parsed;
+        try {
+            const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim();
+            parsed = JSON.parse(cleaned);
+        } catch {
+            return res.status(500).json({ error: 'AI 응답 파싱 실패', raw });
+        }
+
+        res.json(parsed);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 export default router;
