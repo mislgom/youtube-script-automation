@@ -1270,6 +1270,7 @@ function attachSuggestionEvents(container, api) {
 
         // genThemeSkeleton: dna/category/api를 클로저로 캡처 (타이밍 이슈 방지)
         window.genThemeSkeleton = async (el, selectedTitle, originalTopic) => {
+          console.log('[뼈대] 함수 호출됨:', selectedTitle, '| el:', el);
           if (el) {
             const list = el.closest('[data-title-list]');
             if (list) {
@@ -1287,9 +1288,11 @@ function attachSuggestionEvents(container, api) {
           }
 
           const skelResultArea = el?.closest('.theme-titles-result');
-          if (!skelResultArea) return;
+          console.log('[뼈대] skelResultArea:', skelResultArea);
+          if (!skelResultArea) { console.log('[뼈대] EARLY RETURN: skelResultArea 없음'); return; }
           const area = skelResultArea.querySelector('.theme-skeleton-area');
-          if (!area) return;
+          console.log('[뼈대] area:', area);
+          if (!area) { console.log('[뼈대] EARLY RETURN: .theme-skeleton-area 없음'); return; }
 
           // 접혀있으면 펼치기
           const titlesCol = skelResultArea.querySelector('.titles-collapsible-content');
@@ -1302,7 +1305,10 @@ function attachSuggestionEvents(container, api) {
           area.innerHTML = '<div class="flex-center" style="padding:20px; flex-direction:column; gap:10px;"><div class="spinner-sm"></div><div style="font-size:0.75rem;">대본 설계 중...</div></div>';
 
           try {
+            const _skelBody = { dna, selectedTitle, category };
+            console.log('[뼈대] API 호출:', _skelBody);
             const skelRes = await api.generateDnaSkeleton(dna, selectedTitle, category);
+            console.log('[뼈대] API 응답:', skelRes);
             const skel = skelRes.skeleton;
             area.innerHTML = `
               <div class="card theme-skeleton-card" style="border:1px solid var(--success); background:rgba(46,204,64,0.03); padding:16px; border-radius:12px;">
