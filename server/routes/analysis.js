@@ -930,13 +930,162 @@ router.post('/comments/:videoId', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── helpers for script/edit ────────────────────────────────
+const partPattern = /[\[【\-]*\s*(\d+)\s*파트[\]】\-]*/gim;
+
+function splitIntoParts(text) {
+    const parts = [];
+    let lastIndex = 0;
+    let lastNum = null;
+    let match;
+    partPattern.lastIndex = 0;
+    while ((match = partPattern.exec(text)) !== null) {
+        if (lastNum !== null) {
+            parts.push({ num: lastNum, text: text.slice(lastIndex, match.index) });
+        }
+        lastNum = parseInt(match[1], 10);
+        lastIndex = match.index;
+    }
+    if (lastNum !== null) {
+        parts.push({ num: lastNum, text: text.slice(lastIndex) });
+    }
+    if (parts.length === 0) {
+        parts.push({ num: 0, text });
+    }
+    return parts;
+}
+
+function filterRelevantParts(parts, instruction) {
+    const nums = [];
+    const numPattern = /(\d+)\s*파트/g;
+    let m;
+    while ((m = numPattern.exec(instruction)) !== null) {
+        nums.push(parseInt(m[1], 10));
+    }
+    if (nums.length === 0) return parts;
+    return parts.filter(p => nums.includes(p.num));
+}
+
 // POST /api/analysis/scripts/edit — AI edit script based on instructions
 router.post('/scripts/edit', async (req, res) => {
     try {
         const { content, instructions } = req.body;
         if (!content) return res.status(400).json({ error: '대본 내용을 입력해주세요.' });
-        const edited = await editScript(content, instructions);
-        res.json({ content: edited });
+
+        // Split into parts and filter to relevant ones
+        const allParts = splitIntoParts(content);
+        const relevantParts = filterRelevantParts(allParts, instructions || '');
+
+        // Build working lines per-part to track exact line ranges (avoid join/split boundary drift)
+        const allWorkingLines = [];
+        const partLineRanges = []; // { num, start, count }
+        for (const part of relevantParts) {
+            const partLines = part.text.split('\n');
+            partLineRanges.push({ num: part.num, start: allWorkingLines.length, count: partLines.length });
+            allWorkingLines.push(...partLines);
+        }
+        const originalLines = allWorkingLines;
+        const numberedInput = originalLines.map((line, i) => `[${i + 1}] ${line}`).join('\n');
+
+        const partNums = relevantParts.map(p => p.num);
+        const prompt = `당신은 한국어 대본 편집 전문가입니다.
+아래 지시문에 따라 대본을 수정하되, 반드시 아래 규칙을 엄격하게 지켜야 합니다.
+
+[규칙]
+1. 각 줄은 [줄번호] 형식으로 번호가 매겨져 있습니다.
+2. 지시문에서 명시적으로 수정을 요구하는 줄만 변경하십시오.
+3. 수정하지 않는 줄은 원문 그대로 유지하십시오. 단어 하나도 바꾸지 마십시오.
+4. 줄 번호를 추가하거나 제거하지 마십시오. 출력에도 줄 번호를 포함하십시오.
+5. 줄 수를 늘리거나 줄이지 마십시오. 입력과 동일한 줄 수를 출력하십시오.
+
+[지시문]
+${instructions || '맞춤법과 띄어쓰기를 교정해주세요.'}
+
+[파트 정보]
+처리 대상 파트 번호: ${partNums.join(', ') || '전체'}
+
+[대본]
+${numberedInput}
+
+반드시 아래 JSON 형식으로만 응답하세요:
+{
+  "corrected_text": "줄번호 포함 전체 수정 대본",
+  "changed_line_numbers": [수정된 줄 번호 배열],
+  "parts": [
+    {
+      "part_number": 파트번호(숫자),
+      "modified": true또는false,
+      "summary": "이 파트에서 수정된 내용 한 줄 요약 (수정 없으면 빈 문자열)",
+      "changes": [
+        { "action": "replace", "original": "원본 구절", "corrected": "수정된 구절", "reason": "수정 이유" }
+      ]
+    }
+  ]
+}`;
+
+        const raw = await callGemini(prompt, { jsonMode: true });
+        if (!raw) return res.status(503).json({ error: 'Gemini API를 사용할 수 없습니다.' });
+
+        let parsed;
+        try {
+            parsed = JSON.parse(raw.replace(/```json\n?|\n?```/g, '').trim());
+        } catch (e) {
+            return res.status(500).json({ error: 'AI 응답 파싱 실패', raw });
+        }
+
+        const changedLineNumbers = Array.isArray(parsed.changed_line_numbers) ? parsed.changed_line_numbers : [];
+
+        // Strip line numbers from corrected output
+        const correctedLines = (parsed.corrected_text || '').split('\n').map(line => {
+            return line.replace(/^\[\d+\]\s?/, '');
+        });
+
+        // Server-side validation: force unchanged lines back to original
+        for (let i = 0; i < originalLines.length; i++) {
+            if (!changedLineNumbers.includes(i + 1)) {
+                if (correctedLines[i] !== undefined && correctedLines[i] !== originalLines[i]) {
+                    correctedLines[i] = originalLines[i];
+                }
+            }
+        }
+
+        // Pad or trim to match original line count
+        while (correctedLines.length < originalLines.length) correctedLines.push('');
+        correctedLines.length = originalLines.length;
+
+        // Slice correctedLines back per part using tracked line ranges
+        const correctedTextPerPart = {};
+        for (const range of partLineRanges) {
+            correctedTextPerPart[range.num] = correctedLines.slice(range.start, range.start + range.count).join('\n');
+        }
+
+        // Re-assemble: replace each relevant part individually with its corrected text
+        let result = content;
+        for (const part of relevantParts) {
+            const correctedPartText = correctedTextPerPart[part.num];
+            if (correctedPartText !== undefined) {
+                result = result.replace(part.text, correctedPartText);
+            }
+        }
+
+        // Build parts metadata for UI (with corrected_text per part)
+        const partsMetadata = Array.isArray(parsed.parts) ? parsed.parts : [];
+        const partsResponse = allParts.map(p => {
+            const meta = partsMetadata.find(m => m.part_number === p.num);
+            const correctedText = correctedTextPerPart[p.num] !== undefined
+                ? correctedTextPerPart[p.num]
+                : p.text; // non-relevant parts keep original text
+            if (meta) return { ...meta, corrected_text: correctedText };
+            return { part_number: p.num, modified: false, corrected_text: p.text, summary: '', changes: [] };
+        });
+        const modifiedCount = partsResponse.filter(p => p.modified).length;
+
+        res.json({
+            content: result,
+            parts: partsResponse,
+            total_parts: allParts.length,
+            modified_parts: modifiedCount
+        });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

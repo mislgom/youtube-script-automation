@@ -68,7 +68,6 @@ export async function renderEditor(container, { api, navigate }) {
               <button id="fullview-right-btn" style="background:rgba(46,204,64,0.1); color:#6ee7b7; border:1px solid rgba(46,204,64,0.2); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">🔍 전체 보기</button>
               <button id="insert-to-original-btn" style="display:none; background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">📥 원본에 삽입</button>
               <button id="apply-edit-btn" style="display:none; background:rgba(46,204,64,0.15); color:#6ee7b7; border:1px solid rgba(46,204,64,0.2); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">✅ 수정 적용</button>
-              <button id="revert-edit-btn" style="display:none; background:rgba(255,255,255,0.06); color:#9ca3af; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">↩️ 되돌리기</button>
             </div>
           </div>
           <!-- 결과 영역 -->
@@ -155,7 +154,6 @@ export async function renderEditor(container, { api, navigate }) {
     const dropOverlay        = document.getElementById('drop-overlay');
     const startEditBtn       = document.getElementById('start-edit-btn');
     const applyEditBtn       = document.getElementById('apply-edit-btn');
-    const revertEditBtn      = document.getElementById('revert-edit-btn');
     const insertToOriginalBtn = document.getElementById('insert-to-original-btn');
     const saveStatus         = document.getElementById('save-status');
     const searchInput        = document.getElementById('script-search-input');
@@ -230,7 +228,6 @@ export async function renderEditor(container, { api, navigate }) {
         diffViewer.style.display = 'none';
         aiPlaceholder.style.display = 'flex';
         applyEditBtn.style.display = 'none';
-        revertEditBtn.style.display = 'none';
         insertToOriginalBtn.style.display = 'none';
         diffCountLabel.textContent = '수정된 구간: -';
         originalTextForDiff = '';
@@ -337,7 +334,6 @@ export async function renderEditor(container, { api, navigate }) {
         diffViewer.style.display = 'block';
         aiPlaceholder.style.display = 'none';
         applyEditBtn.style.display = 'block';
-        revertEditBtn.style.display = 'block';
         insertToOriginalBtn.style.display = 'block';
         setApplyBtnEnabled(true);
         setExportAiEnabled(false);
@@ -363,7 +359,11 @@ export async function renderEditor(container, { api, navigate }) {
             originalTextForDiff = contentInput.value;
             const data = await api.editScript(content, instructionsInput.value.trim(), editAbortController.signal);
             editedTextForDiff = data.content;
-            renderDiff(originalTextForDiff, editedTextForDiff);
+            if (data.parts && data.parts.length > 0) {
+                renderPartsResult(data);
+            } else {
+                renderDiff(originalTextForDiff, editedTextForDiff);
+            }
             showToast('대본 수정이 완료되었습니다!', 'success');
         } catch (err) {
             if (err.name === 'AbortError') {
@@ -379,6 +379,153 @@ export async function renderEditor(container, { api, navigate }) {
         }
     });
 
+    // ─── Parts Result Render ─────────────────────────────────────
+    function renderPartsResult(data) {
+        const { parts = [], total_parts = 1, modified_parts = 0 } = data;
+        // Track per-part corrected texts for selective apply
+        // Store on diffViewer dataset for access in apply handler
+        diffViewer._partsData = parts;
+        diffViewer._partsOriginal = originalTextForDiff;
+
+        let html = '';
+
+        // Summary bar
+        html += `<div style="background:rgba(99,102,241,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.85rem; color:#a5b4fc;">
+            📋 총 ${total_parts}파트 중 ${modified_parts}파트 수정됨
+        </div>`;
+
+        for (const part of parts) {
+            if (part.modified) {
+                const changesCount = part.changes ? part.changes.length : 0;
+                const cardId = `part-card-${part.part_number}`;
+                const detailId = `part-detail-${part.part_number}`;
+                const cbId = `part-cb-${part.part_number}`;
+
+                html += `<div id="${cardId}" style="border:1px solid rgba(46,204,64,0.3); border-radius:8px; margin-bottom:10px;">`;
+                // header
+                html += `<div class="part-header" data-detail="${detailId}" style="display:flex; align-items:center; justify-content:space-between; padding:8px 12px; background:rgba(46,204,64,0.08); cursor:pointer; border-radius:8px 8px 0 0; user-select:none;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <input type="checkbox" id="${cbId}" class="part-checkbox" data-part="${part.part_number}" checked style="width:15px; height:15px; cursor:pointer; accent-color:#6ee7b7;">
+                        <span style="font-weight:700; color:#e0e0e0; font-size:0.88rem;">${part.part_number}파트</span>
+                        <span style="color:#6ee7b7; font-size:0.82rem;">✅ 수정됨 (${changesCount}건)</span>
+                        ${part.summary ? `<span style="color:rgba(255,255,255,0.35); font-size:0.78rem;">${part.summary}</span>` : ''}
+                    </div>
+                    <span class="part-toggle-arrow" style="color:#6b7280; font-size:0.8rem; transition:transform 0.2s;">▼</span>
+                </div>`;
+
+                // detail (expanded by default)
+                html += `<div id="${detailId}" style="padding:10px 14px; border-top:1px solid rgba(46,204,64,0.1);">`;
+                if (part.changes && part.changes.length > 0) {
+                    for (const change of part.changes) {
+                        if (change.action === 'delete') {
+                            html += `<div style="margin-bottom:8px; background:rgba(239,68,68,0.07); border-radius:6px; padding:6px 10px;">
+                                <span style="color:#f87171; text-decoration:line-through; font-size:0.85rem;">${escHtml(change.original || '')}</span>
+                                ${change.reason ? `<div style="color:rgba(255,255,255,0.3); font-size:0.78rem; margin-top:3px;">이유: ${escHtml(change.reason)}</div>` : ''}
+                            </div>`;
+                        } else {
+                            html += `<div style="margin-bottom:8px; border-radius:6px; padding:6px 10px; background:rgba(255,255,255,0.02);">
+                                <span style="color:#f87171; font-size:0.85rem;">${escHtml(change.original || '')}</span>
+                                <span style="color:#6b7280; margin:0 6px;">→</span>
+                                <span style="color:#6ee7b7; font-size:0.85rem; font-weight:600;">${escHtml(change.corrected || '')}</span>
+                                ${change.reason ? `<div style="color:rgba(255,255,255,0.3); font-size:0.78rem; margin-top:3px;">이유: ${escHtml(change.reason)}</div>` : ''}
+                            </div>`;
+                        }
+                    }
+                } else {
+                    html += `<div style="color:rgba(255,255,255,0.25); font-size:0.82rem; padding:4px 0;">변경 상세 정보 없음</div>`;
+                }
+                html += `</div>`; // detail
+                html += `</div>`; // card
+            } else {
+                // unchanged part
+                html += `<div style="border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 12px; margin-bottom:10px; color:rgba(255,255,255,0.25); font-size:0.85rem;">
+                    ${part.part_number}파트 ⬜ 변경 없음
+                </div>`;
+            }
+        }
+
+        // selective apply button
+        html += `<div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="selective-apply-btn" style="background:rgba(46,204,64,0.15); color:#6ee7b7; border:1px solid rgba(46,204,64,0.3); padding:5px 12px; border-radius:6px; font-size:0.78rem; font-weight:600; cursor:pointer;">✅ 선택 파트만 적용</button>
+        </div>`;
+
+        diffViewer.innerHTML = html;
+        diffViewer.style.display = 'block';
+        aiPlaceholder.style.display = 'none';
+        applyEditBtn.style.display = 'block';
+        insertToOriginalBtn.style.display = 'block';
+        setApplyBtnEnabled(true);
+        setExportAiEnabled(false);
+        diffCountLabel.textContent = `수정된 구간: ${modified_parts}파트`;
+
+        // Toggle collapse on part headers
+        diffViewer.querySelectorAll('.part-header').forEach(header => {
+            header.addEventListener('click', e => {
+                if (e.target.type === 'checkbox') return; // don't collapse on checkbox click
+                const detailId = header.dataset.detail;
+                const detail = document.getElementById(detailId);
+                const arrow = header.querySelector('.part-toggle-arrow');
+                if (!detail) return;
+                const collapsed = detail.style.display === 'none';
+                detail.style.display = collapsed ? 'block' : 'none';
+                arrow.style.transform = collapsed ? '' : 'rotate(-90deg)';
+            });
+        });
+
+        // Selective apply
+        const selectiveApplyBtn = document.getElementById('selective-apply-btn');
+        if (selectiveApplyBtn) {
+            selectiveApplyBtn.addEventListener('click', () => {
+                const partsData = diffViewer._partsData;
+                if (!partsData) return;
+
+                const checkedNums = new Set(
+                    [...diffViewer.querySelectorAll('.part-checkbox:checked')].map(cb => parseInt(cb.dataset.part))
+                );
+
+                // Re-assemble: start from original, replace checked parts using server-provided corrected_text
+                const origParts = splitPartsClient(originalTextForDiff);
+                let result = originalTextForDiff;
+                for (const p of origParts) {
+                    if (checkedNums.has(p.num)) {
+                        const partMeta = partsData.find(pd => pd.part_number === p.num);
+                        if (partMeta && partMeta.corrected_text !== undefined) {
+                            result = result.replace(p.text, partMeta.corrected_text);
+                        }
+                    }
+                }
+
+                contentInput.value = result;
+                triggerAutoSave();
+                showApplyBanner();
+                setApplyBtnEnabled(false);
+                setExportAiEnabled(true);
+                showToast(`선택한 ${checkedNums.size}개 파트가 적용되었습니다.`, 'success');
+            });
+        }
+    }
+
+    function escHtml(str) {
+        return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function splitPartsClient(text) {
+        const partPattern = /[\[【\-]*\s*(\d+)\s*파트[\]】\-]*/gim;
+        const parts = [];
+        let lastIndex = 0;
+        let lastNum = null;
+        let match;
+        partPattern.lastIndex = 0;
+        while ((match = partPattern.exec(text)) !== null) {
+            if (lastNum !== null) parts.push({ num: lastNum, text: text.slice(lastIndex, match.index) });
+            lastNum = parseInt(match[1], 10);
+            lastIndex = match.index;
+        }
+        if (lastNum !== null) parts.push({ num: lastNum, text: text.slice(lastIndex) });
+        if (parts.length === 0) parts.push({ num: 0, text });
+        return parts;
+    }
+
     function showApplyBanner() {
         // 기존 배너가 있으면 제거 후 재삽입
         const existing = diffViewer.querySelector('.apply-banner');
@@ -388,11 +535,6 @@ export async function renderEditor(container, { api, navigate }) {
         banner.style.cssText = 'background:rgba(46,204,64,0.1); border:1px solid rgba(46,204,64,0.3); border-radius:8px; padding:8px 12px; margin-bottom:12px; text-align:center; color:#6ee7b7; font-size:0.85rem; font-weight:600;';
         banner.textContent = '✅ 수정이 원본에 적용되었습니다';
         diffViewer.prepend(banner);
-    }
-
-    function removeApplyBanner() {
-        const banner = diffViewer.querySelector('.apply-banner');
-        if (banner) banner.remove();
     }
 
     applyEditBtn.addEventListener('click', () => {
@@ -405,15 +547,6 @@ export async function renderEditor(container, { api, navigate }) {
         showToast('AI 수정이 원본에 적용되었습니다.', 'success');
     });
 
-    revertEditBtn.addEventListener('click', () => {
-        if (!originalTextForDiff) return;
-        contentInput.value = originalTextForDiff;  // 수정 전 텍스트 복원
-        triggerAutoSave();
-        removeApplyBanner();                       // 배너만 제거, diff 결과는 유지
-        setApplyBtnEnabled(true);                  // 수정 적용 버튼 다시 활성화
-        setExportAiEnabled(false);                 // 수정본 다운로드 비활성화
-        showToast('원본으로 되돌렸습니다.', 'info');
-    });
 
     insertToOriginalBtn.addEventListener('click', () => {
         if (!editedTextForDiff) return;
@@ -478,8 +611,7 @@ export async function renderEditor(container, { api, navigate }) {
                 diffViewer.style.display = 'block';
                 aiPlaceholder.style.display = 'none';
                 applyEditBtn.style.display = 'block';
-                revertEditBtn.style.display = 'block';
-                insertToOriginalBtn.style.display = 'block';
+                        insertToOriginalBtn.style.display = 'block';
                 setApplyBtnEnabled(true);
                 setExportAiEnabled(false);
                 diffCountLabel.textContent = `수정된 구간: ${corrections.length}개`;
