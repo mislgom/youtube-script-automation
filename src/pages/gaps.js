@@ -1187,126 +1187,57 @@ function attachSuggestionEvents(container, api) {
         item.style.cursor = 'pointer';
         resultArea.style.display = 'block';
 
-        // 2. Render DNA UI (4 Tabs) inside the result area
+        // 2. Render action UI (DNA 데이터는 내부 변수로 유지, UI는 표시 안 함)
         resultArea.innerHTML = `
           <div style="background:var(--bg-card); padding:20px; border-radius:12px; border:1px solid var(--accent-glow); margin-bottom:16px;">
-            <div style="font-size:0.9rem; font-weight:800; color:var(--accent); margin-bottom:12px; display:flex; align-items:center; justify-content:space-between; gap:6px;">
-              <span>🧬 분석된 주제 최적화 DNA (Spike Pattern)</span>
-              <button class="dna-section-toggle" style="background:none; border:1px solid rgba(255,255,255,0.15); color:var(--text-muted); cursor:pointer; font-size:0.72rem; font-weight:700; padding:2px 10px; border-radius:4px;">▼ 접기</button>
-            </div>
-
-            <div class="dna-collapsible-content" style="overflow:hidden; transition:max-height 0.3s ease;">
-            <div class="flex gap-4 mb-16 theme-dna-tabs" style="background:rgba(255,255,255,0.03); padding:4px; border-radius:8px;">
-              <button class="btn btn-secondary btn-xs active-tab" data-tab="hook" style="flex:1;">Hook</button>
-              <button class="btn btn-secondary btn-xs" data-tab="struct" style="flex:1;">Struct</button>
-              <button class="btn btn-secondary btn-xs" data-tab="emotion" style="flex:1;">Emotion</button>
-              <button class="btn btn-secondary btn-xs" data-tab="style" style="flex:1;">Style</button>
-            </div>
-
-            <div class="theme-dna-contents" style="min-height:100px; font-size:0.85rem;">
-              <div class="dna-sub-tab" id="sub-hook-${title.replace(/\s/g, '')}">
-                <div style="color:var(--text-muted); font-size:0.7rem; margin-bottom:4px;">HOOK 유형: <span style="color:var(--accent); font-weight:700;">${dna.hook_dna?.hook_type}</span></div>
-                ${(dna.hook_dna?.hook_sentences || []).map(s => `<div style="background:rgba(255,255,255,0.02); padding:6px 10px; border-radius:6px; margin-bottom:4px; border-left:2px solid var(--accent);">"${s}"</div>`).join('')}
-              </div>
-              <div class="dna-sub-tab hidden" id="sub-struct-${title.replace(/\s/g, '')}">
-                <div style="font-weight:700; color:var(--warning); margin-bottom:6px;">구조: ${dna.structure_dna?.structure_type}</div>
-                <div style="display:flex; flex-direction:column; gap:4px;">
-                  ${(dna.structure_dna?.sections || []).map(s => `<div style="font-size:0.75rem;">• ${s.name}: ${s.goal} (${s.duration_pct}%)</div>`).join('')}
-                </div>
-              </div>
-              <div class="dna-sub-tab hidden" id="sub-emotion-${title.replace(/\s/g, '')}">
-                <div style="color:var(--danger); font-weight:700; margin-bottom:4px;">절정 포인트</div>
-                ${(dna.emotion_dna?.peak_points || []).map(p => `<div>🔥 ${p}</div>`).join('')}
-              </div>
-              <div class="dna-sub-tab hidden" id="sub-style-${title.replace(/\s/g, '')}">
-                <div style="margin-bottom:8px;">제목 패턴: <span style="color:var(--accent);">${dna.title_dna?.title_pattern}</span></div>
-                <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                  ${(dna.pace_dna?.repetition_keywords || []).slice(0, 8).map(k => `<span class="tag" style="padding:2px 8px; font-size:0.7rem;">${k}</span>`).join('')}
-                </div>
-              </div>
-            </div>
-
-            <div style="text-align:center; margin-top:16px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.1);">
+            <div style="text-align:center;">
               <button class="btn btn-primary btn-sm theme-recommend-titles-btn" style="width:100%; font-weight:800;">
                 🎯 이 DNA로 후킹 제목 10종 생성하기
               </button>
             </div>
-            
             <div class="theme-titles-result hidden mt-16"></div>
-            </div><!-- /dna-collapsible-content -->
           </div>
         `;
 
-        // Event: Sub-tabs inside suggestion
-        const tabArea = resultArea.querySelector('.theme-dna-tabs');
-        const contents = resultArea.querySelectorAll('.dna-sub-tab');
-        tabArea.querySelectorAll('button').forEach(btn => {
-          btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const tab = btn.dataset.tab;
-            tabArea.querySelectorAll('button').forEach(b => b.classList.remove('active-tab', 'btn-primary'));
-            btn.classList.add('active-tab', 'btn-primary');
-            contents.forEach((c, idx) => {
-              c.classList.add('hidden');
-              if ((tab === 'hook' && idx === 0) || (tab === 'struct' && idx === 1) || (tab === 'emotion' && idx === 2) || (tab === 'style' && idx === 3)) {
-                c.classList.remove('hidden');
-              }
-            });
-          });
-        });
-
-        // Event: DNA section toggle
-        const dnaToggleBtn = resultArea.querySelector('.dna-section-toggle');
-        const dnaCollapsible = resultArea.querySelector('.dna-collapsible-content');
-        if (dnaToggleBtn && dnaCollapsible) {
-          dnaCollapsible.style.maxHeight = dnaCollapsible.scrollHeight + 'px';
-          dnaToggleBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const isOpen = dnaCollapsible.style.maxHeight !== '0px';
-            dnaCollapsible.style.maxHeight = isOpen ? '0px' : dnaCollapsible.scrollHeight + 'px';
-            dnaToggleBtn.textContent = isOpen ? '▲ 펼치기' : '▼ 접기';
-          });
-        }
-
-        // genThemeSkeleton: dna/category/api를 클로저로 캡처 (타이밍 이슈 방지)
+        // genThemeSkeleton: dna/category/api를 클로저로 캡처, 선택 제목 바로 아래 inline 삽입
         window.genThemeSkeleton = async (el, selectedTitle, originalTopic) => {
           console.log('[뼈대] 함수 호출됨:', selectedTitle, '| el:', el);
-          if (el) {
-            const list = el.closest('[data-title-list]');
-            if (list) {
-              list.querySelectorAll('.theme-title-item').forEach(item => {
-                item.style.background = 'rgba(255,255,255,0.03)';
-                item.style.borderColor = 'rgba(255,255,255,0.08)';
-                const cb = item.querySelector('input');
-                if (cb) cb.checked = false;
-              });
-            }
-            el.style.background = 'rgba(255,255,255,0.08)';
-            el.style.borderColor = 'var(--accent)';
-            const cb = el.querySelector('input');
-            if (cb) cb.checked = true;
+          if (!el) return;
+
+          // 기존 선택 해제 + 기존 inline 뼈대 모두 제거
+          const list = el.closest('[data-title-list]');
+          if (list) {
+            list.querySelectorAll('.theme-title-item').forEach(item => {
+              item.style.background = 'rgba(255,255,255,0.03)';
+              item.style.borderColor = 'rgba(255,255,255,0.08)';
+              const cb = item.querySelector('input');
+              if (cb) cb.checked = false;
+            });
+            list.querySelectorAll('.theme-skeleton-inline').forEach(s => s.remove());
           }
 
-          const skelResultArea = el?.closest('.theme-titles-result');
-          console.log('[뼈대] skelResultArea:', skelResultArea);
-          if (!skelResultArea) { console.log('[뼈대] EARLY RETURN: skelResultArea 없음'); return; }
-          const area = skelResultArea.querySelector('.theme-skeleton-area');
-          console.log('[뼈대] area:', area);
-          if (!area) { console.log('[뼈대] EARLY RETURN: .theme-skeleton-area 없음'); return; }
+          // 선택 표시
+          el.style.background = 'rgba(255,255,255,0.08)';
+          el.style.borderColor = 'var(--accent)';
+          const cb = el.querySelector('input');
+          if (cb) cb.checked = true;
+
+          // 선택한 제목 바로 아래에 뼈대 영역 삽입
+          el.insertAdjacentHTML('afterend', '<div class="theme-skeleton-inline" style="margin-top:8px;"></div>');
+          const area = el.nextElementSibling;
 
           // 접혀있으면 펼치기
-          const titlesCol = skelResultArea.querySelector('.titles-collapsible-content');
+          const titlesCol = el.closest('.titles-collapsible-content');
           if (titlesCol && titlesCol.style.maxHeight === '0px') {
             titlesCol.style.maxHeight = titlesCol.scrollHeight + 'px';
-            const tBtn = skelResultArea.querySelector('.titles-section-toggle');
+            const tBtn = el.closest('.theme-titles-result')?.querySelector('.titles-section-toggle');
             if (tBtn) tBtn.textContent = '▼ 접기';
           }
 
           area.innerHTML = '<div class="flex-center" style="padding:20px; flex-direction:column; gap:10px;"><div class="spinner-sm"></div><div style="font-size:0.75rem;">대본 설계 중...</div></div>';
 
           try {
-            const _skelBody = { dna, selectedTitle, category };
-            console.log('[뼈대] API 호출:', _skelBody);
+            console.log('[뼈대] API 호출:', { dna, selectedTitle, category });
             const skelRes = await api.generateDnaSkeleton(dna, selectedTitle, category);
             console.log('[뼈대] API 응답:', skelRes);
             const skel = skelRes.skeleton;
@@ -1349,6 +1280,7 @@ function attachSuggestionEvents(container, api) {
               document.body.removeChild(a);
               URL.revokeObjectURL(url);
             });
+            // 뼈대 추가 후 collapsible 높이 재계산
             if (titlesCol) titlesCol.style.maxHeight = titlesCol.scrollHeight + 'px';
             area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           } catch (err) {
@@ -1390,7 +1322,6 @@ function attachSuggestionEvents(container, api) {
                   </div>
                 `).join('')}
               </div>
-              <div class="theme-skeleton-area mt-16"></div>
             </div><!-- /titles-collapsible-content -->
           `;
 
@@ -1422,7 +1353,7 @@ function attachSuggestionEvents(container, api) {
               e.stopPropagation();
               redoInnerBtn.disabled = true;
               redoInnerBtn.textContent = '추천 중...';
-              titlesResult.innerHTML = '<div class="flex-center" style="padding:20px;"><div class="spinner-sm"></div></div>';
+              titlesResult.innerHTML = '<div class="flex-center" style="padding:20px; flex-direction:column; gap:10px;"><div class="spinner-sm"></div><div style="font-size:0.75rem; color:var(--text-muted);">분석된 주제 최적화 DNA 기반으로 분석중...</div></div>';
               try { await doFetchTitles(); } catch (err) {
                 titlesResult.innerHTML = `<div style="color:var(--danger); font-size:0.8rem;">❌ 실패: ${err.message}</div>`;
               }
@@ -1435,7 +1366,7 @@ function attachSuggestionEvents(container, api) {
           titleBtn.disabled = true;
           titleBtn.innerHTML = '<span class="spinner-sm"></span> 분석 중...';
           titlesResult.classList.remove('hidden');
-          titlesResult.innerHTML = '<div class="flex-center" style="padding:20px;"><div class="spinner-sm"></div></div>';
+          titlesResult.innerHTML = '<div class="flex-center" style="padding:20px; flex-direction:column; gap:10px;"><div class="spinner-sm"></div><div style="font-size:0.75rem; color:var(--text-muted);">분석된 주제 최적화 DNA 기반으로 분석중...</div></div>';
           try {
             await doFetchTitles();
             titleBtn.innerHTML = '✅ 제목 추천 완료';
