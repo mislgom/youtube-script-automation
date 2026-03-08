@@ -1251,25 +1251,20 @@ function attachSuggestionEvents(container, api) {
             const evStyle = ev.style_type || '정보 없음';
 
             area.innerHTML = `
-              <div class="card theme-skeleton-card" style="border:1px solid rgba(99,102,241,0.3); background:rgba(99,102,241,0.08); padding:16px; border-radius:12px;">
-                <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
-                  <div style="font-weight:900; color:var(--accent); font-size:1rem; flex:1;">📜 최종 대본 설계</div>
-                  <button class="redo-skel-btn btn btn-secondary btn-xs">🔄 다시 만들기</button>
-                  <button class="dl-skel-btn btn btn-success btn-xs">📥 TXT 다운로드</button>
-                </div>
-                <div style="background:rgba(99,102,241,0.06); border:1px solid rgba(99,102,241,0.2); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.78rem;" class="dna-evidence-box">
-                  <div style="font-weight:800; color:var(--accent); margin-bottom:6px;">📊 DNA 분석 근거</div>
-                  <div style="display:flex; flex-direction:column; gap:3px; color:#e0e0e0;">
-                    <div>🎬 분석 영상: 떡상 영상 <strong>${evCount}개</strong> 기반</div>
-                    <div>🎣 Hook 패턴: <strong>${evHook}</strong>${evHookEx}</div>
-                    <div>🏗️ 구조 패턴: <strong>${evStruct}</strong>${evPayoff}</div>
-                    <div>💫 감정 흐름: ${evEmotion}</div>
-                    <div>🎨 스타일: ${evStyle}</div>
+              <div class="theme-skeleton-card" style="background:rgba(30,30,50,0.95); border:1px solid rgba(99,102,241,0.3); border-radius:12px; padding:20px; width:100%; box-sizing:border-box;">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
+                  <span style="font-weight:900; font-size:1.1rem; color:#e0e0e0;">📋 최종 대본 설계</span>
+                  <div style="display:flex; gap:8px;">
+                    <button class="redo-skel-btn" style="background:rgba(99,102,241,0.2); color:#a5b4fc; border:1px solid rgba(99,102,241,0.4); padding:6px 14px; border-radius:8px; font-size:0.85rem; cursor:pointer;">🔄 다시 만들기</button>
+                    <button class="dl-skel-btn" style="background:rgba(46,204,64,0.2); color:#6ee7b7; border:1px solid rgba(46,204,64,0.4); padding:6px 14px; border-radius:8px; font-size:0.85rem; cursor:pointer;">📥 TXT 다운로드</button>
                   </div>
                 </div>
-                <div style="font-size:0.85rem; line-height:1.6; display:flex; flex-direction:column; gap:10px; color:#e0e0e0;" class="skeleton-content">
-                  ${skel.sections.map(s => `<div class="skeleton-section"><strong style="color:var(--accent);">[${s.name}]</strong> ${s.hook_sentence} <br><span style="opacity:0.8; font-size:0.75rem;">${s.goal}</span></div>`).join('')}
-                  <div style="border-top:1px solid rgba(99,102,241,0.2); padding-top:10px; color:var(--warning);" class="climax-note">✨ 차별화: ${skel.climax_note}</div>
+                <div class="dna-evidence-box" style="padding:10px 14px; background:rgba(99,102,241,0.06); border-radius:8px; border-left:3px solid #6366f1; margin-bottom:16px; font-size:0.85rem; color:#9ca3af; line-height:1.6;">
+                  📊 DNA 분석 근거 &nbsp;|&nbsp; 분석 영상: 떡상 영상 <strong style="color:#e0e0e0;">${evCount}개</strong> 기반 &nbsp;|&nbsp; Hook 패턴: <strong style="color:#e0e0e0;">${evHook}</strong>${evHookEx} &nbsp;|&nbsp; 구조 패턴: <strong style="color:#e0e0e0;">${evStruct}</strong>${evPayoff} &nbsp;|&nbsp; 감정 흐름: ${evEmotion}
+                </div>
+                <div class="skeleton-content" style="color:#e0e0e0; line-height:1.8; font-size:0.95rem; display:flex; flex-direction:column; gap:12px;">
+                  ${skel.sections.map(s => `<div class="skeleton-section"><span style="color:#a5b4fc; font-weight:700;">[${s.name}]</span> ${s.hook_sentence}<br><span style="color:#9ca3af; font-size:0.8rem;">${s.goal}</span></div>`).join('')}
+                  <div class="climax-note" style="border-top:1px solid rgba(99,102,241,0.2); padding-top:12px; color:var(--warning);">✨ 차별화: ${skel.climax_note}</div>
                 </div>
               </div>
             `;
@@ -1281,9 +1276,8 @@ function attachSuggestionEvents(container, api) {
             // TXT 다운로드
             area.querySelector('.dl-skel-btn').addEventListener('click', (e) => {
               e.stopPropagation();
-              const card = area.querySelector('.card');
-              const sections = card.querySelectorAll('.skeleton-section');
-              const climax = card.querySelector('.climax-note');
+              const sections = area.querySelectorAll('.skeleton-section');
+              const climax = area.querySelector('.climax-note');
               let text = `[DNA 분석 근거]\n`;
               text += `분석 영상: 떡상 영상 ${evCount}개 기반\n`;
               if (evHook !== '정보 없음') text += `Hook 패턴: ${evHook}${evHookEx}\n`;
