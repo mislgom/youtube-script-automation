@@ -30,15 +30,14 @@ export async function renderEditor(container, { api, navigate }) {
         <!-- 왼쪽: 대본 본문 -->
         <div style="background:rgba(30,30,50,0.8); border:1px solid rgba(99,102,241,0.2); border-radius:12px; display:flex; flex-direction:column; min-height:500px;">
           <!-- 헤더 -->
-          <div style="padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
-            <span style="font-weight:700; color:#e0e0e0; font-size:0.88rem;">📄 대본 본문 (원본)</span>
-            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-              <button id="fullview-left-btn" style="background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">🔍 전체 보기</button>
-              <button id="file-upload-btn" style="background:rgba(255,255,255,0.06); color:#9ca3af; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">📂 파일</button>
-              <input type="file" id="file-input-hidden" style="display:none;" accept=".txt">
-              <input id="script-search-input" type="text" placeholder="단어 검색..." style="background:rgba(15,15,30,0.6); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:4px 8px; font-size:0.78rem; color:#e0e0e0; width:80px;">
-              <button id="search-next-btn" style="background:rgba(99,102,241,0.2); color:#a5b4fc; border:1px solid rgba(99,102,241,0.2); border-radius:6px; padding:4px 8px; font-size:0.78rem; font-weight:600; cursor:pointer;">검색</button>
-            </div>
+          <div style="padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; gap:6px; flex-wrap:nowrap; flex-shrink:0;">
+            <span style="font-weight:700; color:#e0e0e0; font-size:0.88rem; white-space:nowrap;">📄 대본 본문 (원본)</span>
+            <span id="loaded-filename" style="color:#9ca3af; font-size:0.75rem; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; cursor:default;"></span>
+            <div style="flex:1;"></div>
+            <button id="file-upload-btn" style="background:rgba(255,255,255,0.06); color:#9ca3af; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer; white-space:nowrap;">📂 파일</button>
+            <input type="file" id="file-input-hidden" style="display:none;" accept=".txt">
+            <input id="script-search-input" type="text" placeholder="단어 검색..." style="background:rgba(15,15,30,0.6); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:4px 8px; font-size:0.78rem; color:#e0e0e0; width:80px;">
+            <button id="search-next-btn" style="background:rgba(99,102,241,0.2); color:#a5b4fc; border:1px solid rgba(99,102,241,0.2); border-radius:6px; padding:4px 8px; font-size:0.78rem; font-weight:600; cursor:pointer;">검색</button>
           </div>
           <!-- 본문 + 드롭존 -->
           <div id="drop-zone" style="flex:1; position:relative; display:flex; flex-direction:column; min-height:0;">
@@ -52,6 +51,7 @@ export async function renderEditor(container, { api, navigate }) {
             <div style="display:flex; gap:6px; align-items:center;">
               <span id="save-status" style="font-size:0.78rem; color:#6b7280; font-weight:500;"></span>
               <button id="new-script-btn" style="background:rgba(255,255,255,0.06); color:#9ca3af; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:5px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">📝 새 대본</button>
+              <button id="spellcheck-btn" style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); border-radius:6px; padding:5px 12px; font-size:0.78rem; font-weight:600; cursor:pointer;">🔤 맞춤법 검사</button>
               <button id="delete-script-btn" style="display:none; background:rgba(239,68,68,0.1); color:#f87171; border:1px solid rgba(239,68,68,0.2); border-radius:6px; padding:5px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">🗑 삭제</button>
               <button id="view-all-btn" style="background:rgba(255,255,255,0.06); color:#9ca3af; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:5px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">👁 전체보기</button>
             </div>
@@ -83,7 +83,6 @@ export async function renderEditor(container, { api, navigate }) {
           <div style="padding:8px 14px; border-top:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; flex-wrap:wrap; gap:6px;">
             <div style="display:flex; gap:6px; align-items:center;">
               <span id="diff-count-label" style="font-size:0.78rem; color:#6b7280;">수정된 구간: -</span>
-              <button id="spellcheck-btn" style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); border-radius:6px; padding:4px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">🔤 맞춤법 검사</button>
             </div>
             <button id="export-ai-btn" disabled style="background:rgba(46,204,64,0.12); color:#6ee7b7; border:1px solid rgba(46,204,64,0.2); border-radius:8px; padding:6px 14px; font-size:0.82rem; font-weight:700; cursor:not-allowed; opacity:0.4;">⬇ 수정본 다운로드</button>
           </div>
@@ -184,7 +183,6 @@ export async function renderEditor(container, { api, navigate }) {
     const fullviewLeftModal     = document.getElementById('fullview-left-modal');
     const fullviewLeftTextarea  = document.getElementById('fullview-left-textarea');
     const fullviewLeftClose     = document.getElementById('fullview-left-close');
-    const fullviewLeftBtn       = document.getElementById('fullview-left-btn');
     const fullviewRightModal    = document.getElementById('fullview-right-modal');
     const fullviewRightContent  = document.getElementById('fullview-right-content');
     const fullviewRightClose    = document.getElementById('fullview-right-close');
@@ -242,6 +240,7 @@ export async function renderEditor(container, { api, navigate }) {
         instructionsInput.value = '';
         clearAIResult();
         deleteBtn.style.display = 'none';
+        setLoadedFileName('');
         if (!silent) {
             saveStatus.textContent = '새 대본';
             showToast('편집기가 초기화되었습니다.', 'info');
@@ -555,75 +554,209 @@ export async function renderEditor(container, { api, navigate }) {
         showToast('AI 결과가 원본에 삽입되었습니다.', 'success');
     });
 
+    // ─── Spellcheck helpers ──────────────────────────────────────
+    function splitForSpellcheck(text, maxChunkSize = 3000) {
+        const chunks = [];
+        const lines = text.split('\n');
+        let current = '';
+        for (const line of lines) {
+            if (current.length + line.length + 1 > maxChunkSize && current.length > 0) {
+                chunks.push(current);
+                current = '';
+            }
+            current += (current ? '\n' : '') + line;
+        }
+        if (current) chunks.push(current);
+        return chunks;
+    }
+
+    function removeDuplicateCorrections(corrections) {
+        const seen = new Set();
+        return corrections.filter(c => {
+            const key = `${c.original}→${c.corrected}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+
+    function applySpellCorrections(text, corrections) {
+        let result = text;
+        // 긴 것부터 교체해야 부분 교체 오류 방지
+        const sorted = [...corrections].sort((a, b) => (b.original || '').length - (a.original || '').length);
+        for (const c of sorted) {
+            if (c.original && c.corrected && c.original !== c.corrected) {
+                result = result.replace(c.original, c.corrected);
+            }
+        }
+        return result;
+    }
+
+    function setSpellcheckProgress(current, total) {
+        aiPlaceholder.innerHTML = `<div>
+            <div style="font-size:1.8rem; margin-bottom:10px;">🔤</div>
+            <div style="color:#fbbf24; font-size:0.9rem; font-weight:600;">맞춤법 검사 중... (${current}/${total})<br>
+            <span style="color:rgba(255,255,255,0.35); font-size:0.8rem;">잠시만 기다려주세요</span></div>
+            <div style="margin-top:12px; background:rgba(255,255,255,0.06); border-radius:6px; height:6px; width:200px;">
+                <div style="background:#fbbf24; border-radius:6px; height:6px; width:${Math.round(current/total*100)}%; transition:width 0.3s;"></div>
+            </div>
+        </div>`;
+    }
+
     // ─── Spellcheck ──────────────────────────────────────────────
     spellcheckBtn.addEventListener('click', async () => {
         if (isEditing) return showToast('AI 수정 중에는 사용할 수 없습니다.', 'warning');
-        // AI 수정 결과가 있으면 그 텍스트를 대상으로, 없으면 원본 textarea 사용
-        const content = (editedTextForDiff || contentInput.value).trim();
-        if (!content) return showToast('검사할 텍스트가 없습니다.', 'warning');
+        const text = contentInput.value.trim();
+        if (!text) return showToast('검사할 텍스트가 없습니다.', 'warning');
 
-        spellcheckBtn.textContent = '🔄 검사 중...';
         spellcheckBtn.disabled = true;
+        spellcheckBtn.textContent = '🔄 검사 중...';
 
-        // 오른쪽 패널 로딩 상태
         clearAIResult();
         aiPlaceholder.style.display = 'flex';
-        aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">🔤</div><div style="color:#fbbf24; font-size:0.9rem; font-weight:600;">맞춤법 검사 중...<br><span style="color:rgba(255,255,255,0.35); font-size:0.8rem;">잠시만 기다려주세요</span></div></div>`;
 
-        try {
-            const resp = await fetch('/api/analysis/spellcheck', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: content })
-            });
-            const data = await resp.json();
-            if (!resp.ok || data.error) throw new Error(data.error || '맞춤법 검사 실패');
+        // 청크 분할 (3,000자, 줄 경계)
+        const chunks = splitForSpellcheck(text, 3000);
+        let allCorrections = [];
 
-            const { corrected_text, corrections = [], total_corrections = 0 } = data;
-            editedTextForDiff = corrected_text;
-            originalTextForDiff = content;
+        for (let i = 0; i < chunks.length; i++) {
+            spellcheckBtn.textContent = `🔄 검사 중... (${i + 1}/${chunks.length})`;
+            setSpellcheckProgress(i + 1, chunks.length);
 
-            if (total_corrections === 0 || corrections.length === 0) {
-                aiPlaceholder.style.display = 'flex';
-                aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">✅</div><div style="color:#6ee7b7; font-size:0.9rem; font-weight:600;">맞춤법 오류가 없습니다!<br><span style="color:rgba(255,255,255,0.35); font-size:0.8rem;">대본이 완벽합니다</span></div></div>`;
-                showToast('맞춤법 오류가 없습니다.', 'success');
-            } else {
-                // 수정된 단어에 하이라이트 적용
-                let highlightedText = corrected_text;
-                const escapedCorrections = corrections
-                    .filter(c => c.corrected && c.corrected !== c.original)
-                    .sort((a, b) => b.corrected.length - a.corrected.length); // 긴 것부터 처리
-                for (const c of escapedCorrections) {
-                    const escaped = c.corrected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    highlightedText = highlightedText.replace(
-                        new RegExp(escaped, 'g'),
-                        `<span class="diff-change" style="background:rgba(46,204,64,0.15); border-bottom:2px solid #6ee7b7; color:#6ee7b7; font-weight:700; padding:1px 0;">${c.corrected}</span>`
-                    );
+            try {
+                const res = await fetch('/api/analysis/spellcheck', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: chunks[i] })
+                });
+
+                if (!res.ok) { console.warn(`청크 ${i + 1} HTTP ${res.status}, 건너뜀`); continue; }
+
+                const raw = await res.text();
+                let data;
+                try {
+                    data = JSON.parse(raw);
+                } catch {
+                    const match = raw.match(/\{[\s\S]*\}/);
+                    if (match) { try { data = JSON.parse(match[0]); } catch { continue; } }
+                    else { continue; }
                 }
 
-                // 수정 목록 HTML
-                const listHtml = `<div style="font-size:0.8rem; color:#9ca3af; border-top:1px solid rgba(255,255,255,0.06); padding-top:12px; margin-top:12px; line-height:1.8;">
-                    <div style="font-weight:700; color:#fbbf24; margin-bottom:6px;">📝 수정 내역 (${corrections.length}건)</div>
-                    ${corrections.map(c => `<div>[${c.type || '맞춤법'}] <span style="color:#f87171;">${c.original}</span> → <span style="color:#6ee7b7;">${c.corrected}</span>${c.reason ? ` <span style="color:rgba(255,255,255,0.3);">(${c.reason})</span>` : ''}</div>`).join('')}
-                </div>`;
-
-                diffViewer.innerHTML = highlightedText + listHtml;
-                diffViewer.style.display = 'block';
-                aiPlaceholder.style.display = 'none';
-                applyEditBtn.style.display = 'block';
-                        insertToOriginalBtn.style.display = 'block';
-                setApplyBtnEnabled(true);
-                setExportAiEnabled(false);
-                diffCountLabel.textContent = `수정된 구간: ${corrections.length}개`;
-                showToast(`맞춤법 검사 완료: ${corrections.length}건 수정`, 'success');
+                if (Array.isArray(data.corrections)) {
+                    allCorrections = allCorrections.concat(data.corrections);
+                }
+            } catch (e) {
+                console.warn(`청크 ${i + 1} fetch 에러:`, e);
+                continue;
             }
-        } catch (err) {
-            aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">❌</div><div style="color:#f87171; font-size:0.9rem; font-weight:600;">맞춤법 검사 실패: ${err.message}</div></div>`;
-            showToast('맞춤법 검사 실패: ' + err.message, 'error');
-        } finally {
-            spellcheckBtn.textContent = '🔤 맞춤법 검사';
-            spellcheckBtn.disabled = false;
         }
+
+        // 중복 제거
+        const corrections = removeDuplicateCorrections(allCorrections);
+
+        // corrections 적용한 텍스트 생성 (수정 적용 버튼용)
+        const correctedText = applySpellCorrections(text, corrections);
+        originalTextForDiff = text;
+        editedTextForDiff = correctedText;
+
+        spellcheckBtn.disabled = false;
+        spellcheckBtn.textContent = '🔤 맞춤법 검사';
+
+        if (corrections.length === 0) {
+            aiPlaceholder.style.display = 'flex';
+            aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">✅</div><div style="color:#6ee7b7; font-size:0.9rem; font-weight:600;">맞춤법 오류가 없습니다!<br><span style="color:rgba(255,255,255,0.35); font-size:0.8rem;">대본이 완벽합니다</span></div></div>`;
+            showToast('맞춤법 오류가 없습니다.', 'success');
+            return;
+        }
+
+        // ── 제외 목록 및 재계산 함수 ─────────────────────────────
+        const excludedCorrections = new Set();
+
+        function rebuildCorrectedText() {
+            let result = text;
+            const active = corrections
+                .filter((_, i) => !excludedCorrections.has(i))
+                .sort((a, b) => (b.original || '').length - (a.original || '').length);
+            for (const c of active) {
+                if (c.original && c.corrected && c.original !== c.corrected) {
+                    result = result.split(c.original).join(c.corrected);
+                }
+            }
+            return result;
+        }
+
+        function updateSummaryBar() {
+            const excludedCount = excludedCorrections.size;
+            const summaryEl = diffViewer.querySelector('.spell-summary');
+            if (summaryEl) {
+                summaryEl.textContent = excludedCount > 0
+                    ? `📝 맞춤법 검사 완료 — 수정 ${corrections.length}건 (제외 ${excludedCount}건)`
+                    : `📝 맞춤법 검사 완료 — 수정 ${corrections.length}건`;
+            }
+            editedTextForDiff = rebuildCorrectedText();
+        }
+
+        // ── 결과 카드 렌더링 ──────────────────────────────────────
+        let html = `<div style="padding:4px 0;">
+            <div class="spell-summary" style="background:rgba(46,204,64,0.1); border:1px solid rgba(46,204,64,0.3); border-radius:8px; padding:10px 14px; margin-bottom:12px; color:#6ee7b7; font-size:0.85rem; font-weight:600;">
+                📝 맞춤법 검사 완료 — 수정 ${corrections.length}건
+            </div>`;
+
+        corrections.forEach((c, idx) => {
+            const typeColor = c.type === '오타' ? '#f87171' : c.type === '띄어쓰기' ? '#fbbf24' : '#a78bfa';
+            const typeLabel = escHtml(c.type || '맞춤법');
+            html += `<div class="spell-card" data-index="${idx}" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:10px 12px; margin-bottom:8px; transition:opacity 0.2s;">
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                    <span style="background:${typeColor}22; color:${typeColor}; padding:2px 8px; border-radius:4px; font-size:0.72rem; font-weight:600;">${typeLabel}</span>
+                    <span style="color:#f87171; text-decoration:line-through; font-size:0.85rem;">${escHtml(c.original || '')}</span>
+                    <span style="color:#9ca3af;">→</span>
+                    <span style="color:#6ee7b7; font-size:0.85rem; font-weight:600;">${escHtml(c.corrected || '')}</span>
+                    <button class="spell-exclude-btn" data-index="${idx}" style="margin-left:auto; background:rgba(239,68,68,0.1); color:#f87171; border:1px solid rgba(239,68,68,0.3); padding:3px 10px; border-radius:5px; font-size:0.72rem; cursor:pointer; white-space:nowrap;">✕ 수정 안하기</button>
+                </div>
+                ${c.reason ? `<div style="color:#9ca3af; font-size:0.75rem; margin-top:4px;">${escHtml(c.reason)}</div>` : ''}
+            </div>`;
+        });
+
+        html += '</div>';
+
+        diffViewer.innerHTML = html;
+        diffViewer.style.display = 'block';
+        aiPlaceholder.style.display = 'none';
+        applyEditBtn.style.display = 'block';
+        insertToOriginalBtn.style.display = 'block';
+        setApplyBtnEnabled(true);
+        setExportAiEnabled(false);
+        diffCountLabel.textContent = `수정된 구간: ${corrections.length}개`;
+        showToast(`맞춤법 검사 완료: ${corrections.length}건 수정`, 'success');
+
+        // ── 제외 버튼 이벤트 ─────────────────────────────────────
+        diffViewer.querySelectorAll('.spell-exclude-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const idx = parseInt(btn.dataset.index);
+                const card = diffViewer.querySelector(`.spell-card[data-index="${idx}"]`);
+                const excluded = excludedCorrections.has(idx);
+
+                if (excluded) {
+                    // 복원
+                    excludedCorrections.delete(idx);
+                    card.style.opacity = '1';
+                    btn.textContent = '✕ 수정 안하기';
+                    btn.style.background = 'rgba(239,68,68,0.1)';
+                    btn.style.color = '#f87171';
+                    btn.style.borderColor = 'rgba(239,68,68,0.3)';
+                } else {
+                    // 제외
+                    excludedCorrections.add(idx);
+                    card.style.opacity = '0.3';
+                    btn.textContent = '↩ 복원';
+                    btn.style.background = 'rgba(46,204,64,0.1)';
+                    btn.style.color = '#6ee7b7';
+                    btn.style.borderColor = 'rgba(46,204,64,0.3)';
+                }
+
+                updateSummaryBar();
+            });
+        });
     });
 
     // ─── Search ─────────────────────────────────────────────────
@@ -643,12 +776,28 @@ export async function renderEditor(container, { api, navigate }) {
     searchInput.addEventListener('keypress', e => { if (e.key === 'Enter') searchBtn.click(); });
 
     // ─── File Upload / Drag & Drop ───────────────────────────────
+    const loadedFilenameEl = document.getElementById('loaded-filename');
+
+    function setLoadedFileName(name) {
+        window._loadedFileName = name || '';
+        if (loadedFilenameEl) {
+            loadedFilenameEl.textContent = name ? `— ${name}` : '';
+            loadedFilenameEl.title = name || '';
+        }
+    }
+
     fileUploadBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', e => {
         const file = e.target.files[0];
         if (!file || !file.name.endsWith('.txt')) return showToast('.txt 파일만 가능합니다.', 'warning');
         const reader = new FileReader();
-        reader.onload = ev => { resetEditor(true); contentInput.value = ev.target.result; showToast('파일을 불러왔습니다.', 'success'); triggerAutoSave(); };
+        reader.onload = ev => {
+            resetEditor(true);
+            contentInput.value = ev.target.result;
+            setLoadedFileName(file.name);
+            showToast('파일을 불러왔습니다.', 'success');
+            triggerAutoSave();
+        };
         reader.readAsText(file);
         fileInput.value = '';
     });
@@ -661,7 +810,13 @@ export async function renderEditor(container, { api, navigate }) {
         const file = e.dataTransfer.files[0];
         if (!file || !file.name.endsWith('.txt')) return showToast('.txt 파일만 가능합니다.', 'warning');
         const reader = new FileReader();
-        reader.onload = ev => { resetEditor(true); contentInput.value = ev.target.result; showToast('파일을 불러왔습니다.', 'success'); triggerAutoSave(); };
+        reader.onload = ev => {
+            resetEditor(true);
+            contentInput.value = ev.target.result;
+            setLoadedFileName(file.name);
+            showToast('파일을 불러왔습니다.', 'success');
+            triggerAutoSave();
+        };
         reader.readAsText(file);
     });
 
@@ -703,7 +858,8 @@ export async function renderEditor(container, { api, navigate }) {
     exportBtn.addEventListener('click', () => {
         const content = contentInput.value.trim();
         if (!content) return;
-        const name = `${content.split('\n')[0].substring(0, 20) || '제목없음'} 편집완료.txt`;
+        const loaded = window._loadedFileName || '';
+        const name = loaded || '대본_무제.txt';
         const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([content], { type: 'text/plain' })), download: name });
         a.click(); URL.revokeObjectURL(a.href);
         saveScript();
@@ -713,7 +869,10 @@ export async function renderEditor(container, { api, navigate }) {
         if (exportAiBtn.disabled) return;
         const content = editedTextForDiff;
         if (!content) return showToast('AI 수정 결과가 없습니다.', 'info');
-        const name = `수정본_대본.txt`;
+        const loaded = window._loadedFileName || '';
+        const name = loaded
+            ? `수정본_${loaded.replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|]/g, '_')}.txt`
+            : '수정본_무제.txt';
         const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([content], { type: 'text/plain' })), download: name });
         a.click(); URL.revokeObjectURL(a.href);
     });
@@ -751,11 +910,6 @@ export async function renderEditor(container, { api, navigate }) {
     });
     fullviewInstrTextarea.addEventListener('input', () => { instructionsInput.value = fullviewInstrTextarea.value; });
 
-    fullviewLeftBtn.addEventListener('click', () => {
-        fullviewLeftTextarea.value = contentInput.value;
-        setModalDisplay(fullviewLeftModal, true);
-        fullviewLeftTextarea.focus();
-    });
     fullviewLeftClose.addEventListener('click', () => {
         contentInput.value = fullviewLeftTextarea.value;
         triggerAutoSave();

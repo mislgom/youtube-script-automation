@@ -1257,24 +1257,21 @@ router.post('/background-stop', (req, res) => {
     res.json({ ok: true, status: getBackgroundStatus() });
 });
 
-// POST /api/analysis/spellcheck — 맞춤법/띄어쓰기 검사
+// POST /api/analysis/spellcheck — 맞춤법/띄어쓰기 검사 (단일 청크, 프론트에서 분할 호출)
 router.post('/spellcheck', async (req, res) => {
     try {
         const { text } = req.body;
         if (!text) return res.status(400).json({ error: '텍스트를 입력해주세요.' });
 
-        const prompt = `당신은 한국어 맞춤법 및 띄어쓰기 전문가입니다.
+        const prompt = `다음 텍스트의 맞춤법, 띄어쓰기, 오타만 검사하세요.
+원문을 그대로 반환하지 마세요.
 
-아래 대본 텍스트의 오타, 맞춤법 오류, 띄어쓰기 오류만 수정해주세요.
-문장 구조, 표현, 내용은 절대 변경하지 마세요.
-
-반드시 아래 JSON 형식으로 응답하세요:
+오류가 있는 부분만 아래 JSON 형식으로 반환:
 {
-  "corrected_text": "수정된 전체 텍스트",
   "corrections": [
     {
-      "original": "원래 단어/구문",
-      "corrected": "수정된 단어/구문",
+      "original": "틀린 단어/구문",
+      "corrected": "올바른 단어/구문",
       "type": "오타|띄어쓰기|맞춤법",
       "reason": "수정 이유"
     }
@@ -1282,12 +1279,13 @@ router.post('/spellcheck', async (req, res) => {
   "total_corrections": 숫자
 }
 
-수정할 부분이 없으면 corrections를 빈 배열로 반환하세요.
+오류가 없으면 {"corrections":[],"total_corrections":0} 반환
+반드시 JSON만 반환. 마크다운 코드블록 사용 금지.
 
-대본 텍스트:
+텍스트:
 ${text}`;
 
-        const raw = await callGemini(prompt, { jsonMode: true });
+        const raw = await callGemini(prompt, { jsonMode: true, maxTokens: 8192 });
         if (!raw) return res.status(503).json({ error: 'API 키가 설정되지 않았습니다.' });
 
         let parsed;
@@ -1295,10 +1293,14 @@ ${text}`;
             const cleaned = raw.replace(/```json\n?|\n?```/g, '').trim();
             parsed = JSON.parse(cleaned);
         } catch {
-            return res.status(500).json({ error: 'AI 응답 파싱 실패', raw });
+            const jsonMatch = raw.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) return res.status(500).json({ error: 'AI 응답 파싱 실패' });
+            try { parsed = JSON.parse(jsonMatch[0]); }
+            catch { return res.status(500).json({ error: 'AI 응답 파싱 실패' }); }
         }
 
-        res.json(parsed);
+        const corrections = Array.isArray(parsed.corrections) ? parsed.corrections : [];
+        res.json({ corrections, total_corrections: corrections.length });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
