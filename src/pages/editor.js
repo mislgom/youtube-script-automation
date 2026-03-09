@@ -44,7 +44,7 @@ export async function renderEditor(container, { api, navigate }) {
             <div id="drop-overlay" style="display:none; position:absolute; inset:0; background:rgba(99,102,241,0.1); border:3px dashed #a5b4fc; border-radius:12px; z-index:10; align-items:center; justify-content:center; pointer-events:none;">
               <span style="font-size:1.1rem; font-weight:700; color:#a5b4fc;">📂 파일을 여기에 놓으세요</span>
             </div>
-            <textarea id="script-content" placeholder="이곳에 대본 내용을 자유롭게 작성하거나, 텍스트 파일을 끌어다 놓으세요..." style="flex:1; background:transparent; border:none; color:#e0e0e0; padding:16px; font-size:0.92rem; line-height:1.8; resize:none; font-family:inherit; outline:none;"></textarea>
+            <textarea id="script-content" placeholder="이곳에 대본 내용을 자유롭게 작성하거나, 텍스트 파일을 끌어다 놓으세요..." style="height:600px; max-height:600px; overflow-y:auto; background:transparent; border:none; color:#e0e0e0; padding:16px; font-size:0.92rem; line-height:1.8; resize:none; font-family:inherit; outline:none;"></textarea>
           </div>
           <!-- 하단 바 -->
           <div style="padding:8px 14px; border-top:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; flex-wrap:wrap; gap:6px;">
@@ -78,7 +78,7 @@ export async function renderEditor(container, { api, navigate }) {
               <div style="margin-top:8px; font-size:0.78rem; color:rgba(255,255,255,0.2);">초록 밑줄: 추가/변경된 내용</div>
             </div>
           </div>
-          <div id="diff-viewer" style="display:none; flex:1; font-size:0.92rem; line-height:1.8; padding:16px; background:transparent; overflow-y:auto; white-space:pre-wrap; color:#e0e0e0; font-weight:500;"></div>
+          <div id="diff-viewer" style="display:none; height:600px; max-height:600px; overflow-y:auto; font-size:0.92rem; line-height:1.8; padding:16px; background:transparent; white-space:pre-wrap; color:#e0e0e0; font-weight:500;"></div>
           <!-- 하단 바 -->
           <div style="padding:8px 14px; border-top:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; flex-wrap:wrap; gap:6px;">
             <div style="display:flex; gap:6px; align-items:center;">
