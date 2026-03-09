@@ -385,6 +385,114 @@ export async function renderSearch(container, { api }) {
           border-color: #ef4444;
           transform: scale(1.05);
       }
+      .genre-preset-row {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+      }
+      .genre-btn-group {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
+      }
+      .genre-btns {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+      }
+      .genre-btn {
+          height: 36px;
+          padding: 0 16px;
+          background: #050505;
+          border: 1px solid #2a2d35;
+          border-radius: 18px;
+          color: #888;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+      }
+      .genre-btn:hover {
+          border-color: #555;
+          color: #ccc;
+      }
+      .genre-btn.active {
+          background: #fff;
+          border-color: #fff;
+          color: #000;
+      }
+      .keyword-tags-area {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          padding: 14px;
+          background: #050505;
+          border: 1px solid #1f2229;
+          border-radius: 12px;
+      }
+      .kw-tags-wrap {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+      }
+      .kw-tag {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 5px 12px;
+          background: #1a1b23;
+          border: 1px solid #2a2d35;
+          border-radius: 16px;
+          font-size: 13px;
+          color: #ccc;
+          cursor: pointer;
+          transition: all 0.2s;
+          user-select: none;
+      }
+      .kw-tag:hover { border-color: #555; }
+      .kw-tag.excluded {
+          opacity: 0.35;
+          text-decoration: line-through;
+      }
+      .genre-tag-controls {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+      }
+      .genre-ctrl-btn {
+          height: 30px;
+          padding: 0 12px;
+          background: transparent;
+          border: 1px solid #2a2d35;
+          border-radius: 8px;
+          color: #777;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+      }
+      .genre-ctrl-btn:hover { border-color: #555; color: #ccc; }
+      .genre-custom-input {
+          height: 30px;
+          padding: 0 12px;
+          background: #0a0a0f;
+          border: 1px solid #2a2d35;
+          border-radius: 8px;
+          color: #fff;
+          font-size: 13px;
+          outline: none;
+          width: 160px;
+      }
+      .genre-custom-input:focus { border-color: #444; }
+      .genre-expected {
+          font-size: 11px;
+          color: #444;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+      }
     </style>
 
     <div class="trending-search-root">
@@ -393,6 +501,22 @@ export async function renderSearch(container, { api }) {
       </div>
 
       <div class="search-panel">
+          <div class="genre-preset-row">
+              <div class="genre-btn-group">
+                  <span class="input-label-custom">Genre Preset</span>
+                  <div class="genre-btns" id="genre-btns"></div>
+              </div>
+              <div class="keyword-tags-area" id="genre-tags-area" style="display:none;">
+                  <div class="kw-tags-wrap" id="genre-kw-tags"></div>
+                  <div class="genre-tag-controls">
+                      <button class="genre-ctrl-btn" id="genre-select-all-btn">전체 선택</button>
+                      <button class="genre-ctrl-btn" id="genre-deselect-all-btn">전체 해제</button>
+                      <input class="genre-custom-input" id="genre-custom-kw" type="text" placeholder="키워드 직접 추가...">
+                      <button class="genre-ctrl-btn" id="genre-add-kw-btn">+ 추가</button>
+                  </div>
+                  <div class="genre-expected" id="genre-expected">예상 수집량: 0개</div>
+              </div>
+          </div>
           <div class="top-row">
               <div class="input-group-custom">
                   <span class="input-label-custom">Keyword Search</span>
@@ -474,6 +598,103 @@ export async function renderSearch(container, { api }) {
   let registeredChannelIds = new Set();
   let viewMode = 'video'; // 'video' or 'channel'
 
+  // ── Genre Preset ──────────────────────────────────────────
+  const GENRE_PRESETS = {
+    story:   { label: '📖 야담/스토리', keywords: ['야담','야사','조선야담','민담','설화','괴담','옛날이야기','구전설화','고전소설','한국설화'] },
+    finance: { label: '💰 경제/투자',   keywords: ['경제','주식','재테크','투자','부동산','ETF','금융','경제전망','자산관리','돈공부'] },
+    psych:   { label: '🧠 심리학',      keywords: ['심리학','심리','인간관계','심리분석','행동심리','마음공부','정신건강','자기계발','멘탈','심리상담'] }
+  };
+  let selectedGenre = null;
+  const activeKeywords = new Set();  // 비어있으면 전체 = 활성
+
+  // render genre buttons
+  const genreBtnsEl = document.getElementById('genre-btns');
+  Object.entries(GENRE_PRESETS).forEach(([key, { label }]) => {
+    const btn = document.createElement('button');
+    btn.className = 'genre-btn';
+    btn.dataset.genre = key;
+    btn.textContent = label;
+    btn.addEventListener('click', () => selectGenre(key));
+    genreBtnsEl.appendChild(btn);
+  });
+
+  function updateExpected() {
+    const count = activeKeywords.size;
+    document.getElementById('genre-expected').textContent =
+      count > 0 ? `예상 수집량: 약 ${count * 100}개` : '예상 수집량: 0개';
+  }
+
+  function renderKeywordTags() {
+    const tagsEl = document.getElementById('genre-kw-tags');
+    tagsEl.innerHTML = '';
+    const preset = GENRE_PRESETS[selectedGenre];
+    if (!preset) return;
+    preset.keywords.forEach(kw => {
+      const tag = document.createElement('span');
+      tag.className = 'kw-tag' + (activeKeywords.has(kw) ? '' : ' excluded');
+      tag.textContent = kw;
+      tag.addEventListener('click', () => {
+        if (activeKeywords.has(kw)) activeKeywords.delete(kw);
+        else activeKeywords.add(kw);
+        tag.classList.toggle('excluded', !activeKeywords.has(kw));
+        updateExpected();
+        setKeywordInputToFirst();
+      });
+      tagsEl.appendChild(tag);
+    });
+    updateExpected();
+  }
+
+  function setKeywordInputToFirst() {
+    const first = [...activeKeywords][0] || '';
+    document.getElementById('trend-keyword').value = first;
+  }
+
+  function selectGenre(key) {
+    selectedGenre = key;
+    activeKeywords.clear();
+    GENRE_PRESETS[key].keywords.forEach(kw => activeKeywords.add(kw));
+
+    document.querySelectorAll('.genre-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.genre === key));
+
+    document.getElementById('genre-tags-area').style.display = '';
+    renderKeywordTags();
+    setKeywordInputToFirst();
+  }
+
+  document.getElementById('genre-select-all-btn').addEventListener('click', () => {
+    if (!selectedGenre) return;
+    GENRE_PRESETS[selectedGenre].keywords.forEach(kw => activeKeywords.add(kw));
+    renderKeywordTags();
+    setKeywordInputToFirst();
+  });
+
+  document.getElementById('genre-deselect-all-btn').addEventListener('click', () => {
+    activeKeywords.clear();
+    renderKeywordTags();
+    setKeywordInputToFirst();
+  });
+
+  document.getElementById('genre-add-kw-btn').addEventListener('click', addCustomKeyword);
+  document.getElementById('genre-custom-kw').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addCustomKeyword();
+  });
+
+  function addCustomKeyword() {
+    const input = document.getElementById('genre-custom-kw');
+    const kw = input.value.trim();
+    if (!kw) return;
+    if (selectedGenre && !GENRE_PRESETS[selectedGenre].keywords.includes(kw)) {
+      GENRE_PRESETS[selectedGenre].keywords.push(kw);
+    }
+    activeKeywords.add(kw);
+    input.value = '';
+    renderKeywordTags();
+    setKeywordInputToFirst();
+  }
+  // ─────────────────────────────────────────────────────────
+
   // Initial load of registered channels
   const refreshRegisteredChannels = async () => {
     try {
@@ -483,8 +704,12 @@ export async function renderSearch(container, { api }) {
   };
   refreshRegisteredChannels();
 
-  document.getElementById('trend-search-btn').addEventListener('click', doSearch);
-  document.getElementById('trend-keyword').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+  const triggerSearch = () => {
+    if (selectedGenre && activeKeywords.size > 0) multiKeywordSearch(activeKeywords);
+    else doSearch();
+  };
+  document.getElementById('trend-search-btn').addEventListener('click', triggerSearch);
+  document.getElementById('trend-keyword').addEventListener('keydown', (e) => { if (e.key === 'Enter') triggerSearch(); });
   document.getElementById('trend-sort').addEventListener('change', renderResults);
   document.getElementById('trend-filter').addEventListener('input', renderResults);
   document.getElementById('trend-exclude-registered').addEventListener('change', renderResults);
@@ -565,6 +790,93 @@ export async function renderSearch(container, { api }) {
       renderResults();
     });
   });
+
+  // ── 단일 키워드 API 호출 → { results, nextPageToken } ────────
+  async function fetchSearchResults(kw, pageToken) {
+    const body = {
+      keyword: kw,
+      period: document.getElementById('trend-period').value,
+      videoType: 'any',
+      minSubscribers: parseInt(document.getElementById('trend-min-subs').value) || 0,
+      minViews: parseInt(document.getElementById('trend-min-views').value) || 0,
+      maxResults: 50
+    };
+    if (pageToken) body.pageToken = pageToken;
+    const res = await fetch('/api/youtube/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error('검색 실패: ' + res.status);
+    return await res.json(); // { results, nextPageToken, total, keyword }
+  }
+
+  // ── 다중 키워드 순차 검색 ──────────────────────────────────
+  async function multiKeywordSearch(keywords) {
+    const keywordArray = Array.from(keywords);
+    const collected = [];
+    const seenVideoIds = new Set();
+
+    await refreshRegisteredChannels();
+
+    const btn = document.getElementById('trend-search-btn');
+    btn.disabled = true; btn.textContent = '...';
+    document.getElementById('trend-toolbar').style.display = 'none';
+
+    // 진행률 UI
+    document.getElementById('trend-results').innerHTML = `
+      <div id="multi-search-progress" style="padding:48px 24px;">
+        <div id="msp-label" style="font-weight:700; color:#aaa; margin-bottom:16px; font-size:14px; letter-spacing:0.3px;">🔄 검색 준비 중...</div>
+        <div style="background:#1a1b23; border-radius:8px; height:6px; overflow:hidden;">
+          <div id="msp-bar" style="background:#fff; height:100%; width:0%; transition:width 0.4s ease;"></div>
+        </div>
+        <div id="msp-sub" style="margin-top:12px; font-size:12px; color:#444; font-weight:600;"></div>
+      </div>
+    `;
+
+    for (let i = 0; i < keywordArray.length; i++) {
+      const kw = keywordArray[i];
+      const pct = Math.round((i / keywordArray.length) * 100);
+      document.getElementById('msp-label').textContent = `🔄 검색 중... (${i + 1}/${keywordArray.length}) — ${kw}`;
+      document.getElementById('msp-bar').style.width = pct + '%';
+      document.getElementById('msp-sub').textContent = `수집된 결과: ${collected.length}개`;
+      document.getElementById('trend-keyword').value = kw;
+
+      try {
+        const data1 = await fetchSearchResults(kw);
+        for (const item of (data1.results || [])) {
+          if (!seenVideoIds.has(item.video_id)) {
+            seenVideoIds.add(item.video_id);
+            collected.push(item);
+          }
+        }
+        if (data1.nextPageToken) {
+          const data2 = await fetchSearchResults(kw, data1.nextPageToken);
+          for (const item of (data2.results || [])) {
+            if (!seenVideoIds.has(item.video_id)) {
+              seenVideoIds.add(item.video_id);
+              collected.push(item);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`키워드 "${kw}" 검색 실패:`, e);
+      }
+    }
+
+    // 완료 표시
+    document.getElementById('msp-label').textContent =
+      `✅ 검색 완료 — ${keywordArray.length}개 키워드, ${collected.length}개 결과 (중복 제거)`;
+    document.getElementById('msp-bar').style.width = '100%';
+    document.getElementById('msp-sub').textContent = '';
+
+    allResults = collected;
+    document.getElementById('trend-toolbar').style.display = 'flex';
+    await new Promise(r => setTimeout(r, 800));
+    renderResults();
+    btn.disabled = false; btn.textContent = '검색';
+  }
+  // ─────────────────────────────────────────────────────────
 
   async function doSearch() {
     const keyword = document.getElementById('trend-keyword').value.trim();

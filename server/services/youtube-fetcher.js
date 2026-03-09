@@ -147,7 +147,8 @@ export async function searchVideos(options = {}) {
         maxResults = 50,
         minSubscribers = 0,
         minViews = 0,
-        order = 'viewCount'  // 'viewCount', 'date', 'relevance'
+        order = 'viewCount', // 'viewCount', 'date', 'relevance'
+        pageToken = null
     } = options;
 
     // Calculate publishedAfter
@@ -181,9 +182,10 @@ export async function searchVideos(options = {}) {
         relevanceLanguage: 'ko'
     };
     if (publishedAfter) searchParams.publishedAfter = publishedAfter;
+    if (pageToken) searchParams.pageToken = pageToken;
 
     const searchData = await apiFetch('search', searchParams);
-    if (!searchData.items?.length) return [];
+    if (!searchData.items?.length) return { results: [], nextPageToken: null };
 
     // Get detailed info for all found videos
     const videoIds = searchData.items.map(item => item.id.videoId).join(',');
@@ -264,7 +266,7 @@ export async function searchVideos(options = {}) {
     // Sort by viral_score descending (default)
     filtered.sort((a, b) => b.viral_score - a.viral_score);
 
-    return filtered;
+    return { results: filtered, nextPageToken: searchData.nextPageToken || null };
 }
 
 // ═══════════════════════════════════════════════════════════

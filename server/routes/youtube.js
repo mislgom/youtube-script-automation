@@ -14,10 +14,10 @@ const activeJobs = new Map();
 // ═══════════════════════════════════════════════════════════
 router.post('/search', async (req, res) => {
     try {
-        const { keyword, period, videoType, maxResults, minSubscribers, minViews, order } = req.body;
+        const { keyword, period, videoType, maxResults, minSubscribers, minViews, order, pageToken } = req.body;
         if (!keyword) return res.status(400).json({ error: '검색 키워드를 입력해주세요.' });
-        const results = await searchVideos({ keyword, period, videoType, maxResults, minSubscribers, minViews, order });
-        res.json({ results, total: results.length, keyword });
+        const { results, nextPageToken } = await searchVideos({ keyword, period, videoType, maxResults, minSubscribers, minViews, order, pageToken });
+        res.json({ results, nextPageToken, total: results.length, keyword });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
