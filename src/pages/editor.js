@@ -551,44 +551,26 @@ export async function renderEditor(container, { api, navigate }) {
         if (replaceCnt) parts.push(`교체 ${replaceCnt}건`);
         if (insertCnt)  parts.push(`삽입 ${insertCnt}건`);
 
-        let html = `<div style="background:rgba(46,204,64,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.85rem; color:#6ee7b7; font-weight:600;">
-            ✅ 지시문 처리 완료 — ${parts.join(', ')} (총 ${appliedCount}건)
-        </div>`;
+        let html = `<div style="background:rgba(46,204,64,0.08); border-radius:8px; padding:3px 8px; margin:0 0 1px 0; font-size:0.78rem; line-height:1.3; color:#6ee7b7; font-weight:600; white-space:normal; text-align:center;">✅ 지시문 처리 완료 — ${parts.join(', ')} (총 ${appliedCount}건)</div>`;
 
         details.forEach((d, i) => {
             const detailId = `inst-detail-${i}`;
 
-            // 상세 내용 HTML 조립
             let detailHtml = '';
             if (d.type === 'delete') {
-                detailHtml = `
-                    <div style="margin-top:6px; font-size:0.78rem; color:rgba(255,255,255,0.4); margin-bottom:3px;">🔴 삭제된 내용:</div>
-                    <div style="background:rgba(239,68,68,0.08); border-left:3px solid #f87171; color:#fca5a5; padding:6px 10px; border-radius:4px; font-size:0.8rem; white-space:pre-wrap; text-decoration:line-through;">${escHtml(d.originalText || '')}</div>`;
+                detailHtml = `<div style="margin-top:4px; font-size:0.75rem; color:rgba(255,255,255,0.4); margin-bottom:2px;">🔴 삭제된 내용:</div><div style="background:rgba(239,68,68,0.08); border-left:3px solid #f87171; color:#fca5a5; padding:4px 8px; border-radius:4px; font-size:0.78rem; white-space:pre-wrap; text-decoration:line-through;">${escHtml(d.originalText || '')}</div>`;
             } else if (d.type === 'replace') {
-                detailHtml = `
-                    <div style="margin-top:6px; font-size:0.78rem; color:rgba(255,255,255,0.4); margin-bottom:3px;">🔴 원본:</div>
-                    <div style="background:rgba(239,68,68,0.08); border-left:3px solid #f87171; color:#fca5a5; padding:6px 10px; border-radius:4px; font-size:0.8rem; white-space:pre-wrap; text-decoration:line-through;">${escHtml(d.originalText || '')}</div>
-                    <div style="margin-top:4px; font-size:0.78rem; color:rgba(255,255,255,0.4); margin-bottom:3px;">🟢 변경:</div>
-                    <div style="background:rgba(46,204,64,0.08); border-left:3px solid #6ee7b7; color:#a7f3d0; padding:6px 10px; border-radius:4px; font-size:0.8rem; white-space:pre-wrap;">${escHtml(d.newText || '')}</div>`;
+                detailHtml = `<div style="margin-top:4px; font-size:0.75rem; color:rgba(255,255,255,0.4); margin-bottom:2px;">🔴 원본:</div><div style="background:rgba(239,68,68,0.08); border-left:3px solid #f87171; color:#fca5a5; padding:4px 8px; border-radius:4px; font-size:0.78rem; white-space:pre-wrap; text-decoration:line-through;">${escHtml(d.originalText || '')}</div><div style="margin-top:3px; font-size:0.75rem; color:rgba(255,255,255,0.4); margin-bottom:2px;">🟢 변경:</div><div style="background:rgba(46,204,64,0.08); border-left:3px solid #6ee7b7; color:#a7f3d0; padding:4px 8px; border-radius:4px; font-size:0.78rem; white-space:pre-wrap;">${escHtml(d.newText || '')}</div>`;
             } else if (d.type === 'insert') {
-                detailHtml = `
-                    <div style="margin-top:6px; font-size:0.78rem; color:rgba(255,255,255,0.4); margin-bottom:3px;">🟢 삽입된 내용:</div>
-                    <div style="background:rgba(46,204,64,0.08); border-left:3px solid #6ee7b7; color:#a7f3d0; padding:6px 10px; border-radius:4px; font-size:0.8rem; white-space:pre-wrap;">${escHtml(d.newText || '')}</div>`;
+                detailHtml = `<div style="margin-top:4px; font-size:0.75rem; color:rgba(255,255,255,0.4); margin-bottom:2px;">🟢 삽입된 내용:</div><div style="background:rgba(46,204,64,0.08); border-left:3px solid #6ee7b7; color:#a7f3d0; padding:4px 8px; border-radius:4px; font-size:0.78rem; white-space:pre-wrap;">${escHtml(d.newText || '')}</div>`;
             }
 
-            html += `
-            <div style="background:rgba(46,204,64,0.07); border:1px solid rgba(46,204,64,0.3); border-radius:6px; margin-bottom:8px; overflow:hidden;">
-                <div class="inst-card-header" data-detail="${detailId}"
-                     style="display:flex; align-items:center; justify-content:space-between; padding:8px 12px; cursor:pointer; user-select:none;">
-                    <span style="color:#6ee7b7; font-size:0.83rem; font-weight:600;">✅ ${escHtml(d.label)}</span>
-                    <span class="inst-toggle-arrow" style="color:#4ade80; font-size:0.75rem; font-weight:700; transition:transform 0.2s; transform:rotate(-90deg);">▼ 상세보기</span>
-                </div>
-                <div id="${detailId}" style="display:none; padding:0 12px 10px 12px; border-top:1px solid rgba(46,204,64,0.15);">
-                    ${detailHtml}
-                </div>
-            </div>`;
+            html += `<div style="background:rgba(46,204,64,0.05); border:1px solid rgba(46,204,64,0.3); border-radius:6px; margin:0 0 1px 0; overflow:hidden; white-space:normal; line-height:1.4;"><div class="inst-card-header" data-detail="${detailId}" style="display:flex; align-items:center; justify-content:space-between; padding:3px 8px; margin:0; cursor:pointer; user-select:none; white-space:normal; line-height:1.4; font-size:0.78rem;"><span style="color:#6ee7b7; font-weight:600;">✅ ${escHtml(d.label)}</span><span class="inst-toggle-arrow" style="color:#4ade80; font-size:0.7rem; font-weight:700; white-space:nowrap; margin-left:auto; flex-shrink:0; display:inline; writing-mode:horizontal-tb;">▶ 상세보기</span></div><div id="${detailId}" style="display:none; padding:2px 8px 4px; margin:0; border-top:1px solid rgba(46,204,64,0.15); white-space:pre-wrap;">${detailHtml}</div></div>`;
         });
 
+        diffViewer.style.whiteSpace = 'normal';
+        diffViewer.style.lineHeight = '1.4';
+        diffViewer.style.padding = '2px';
         diffViewer.innerHTML = html;
         diffViewer.style.display = 'block';
         aiPlaceholder.style.display = 'none';
@@ -606,8 +588,7 @@ export async function renderEditor(container, { api, navigate }) {
                 if (!detail) return;
                 const open = detail.style.display !== 'none';
                 detail.style.display = open ? 'none' : 'block';
-                arrow.textContent = open ? '▼ 상세보기' : '▲ 접기';
-                arrow.style.transform = open ? 'rotate(-90deg)' : 'rotate(0deg)';
+                arrow.textContent = open ? '▶ 상세보기' : '▼ 접기';
             });
         });
     }
