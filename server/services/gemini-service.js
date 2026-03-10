@@ -62,21 +62,18 @@ export function resetClient() {
 }
 
 export async function callGemini(prompt, options = {}) {
-    const { jsonMode = false, useGoogleSearch = false } = options;
+    const { jsonMode = false, useGoogleSearch = false, maxTokens = null } = options;
 
-    // Cloud Run 중계 서버 URL 먼저 확인 (gemini_api_key 없어도 사용 가능)
-    const cloudRunRow = queryOne("SELECT value FROM settings WHERE key = 'cloud_run_url'");
-    const cloudRunUrl = cloudRunRow?.value?.trim();
+    // AI Studio REST 전용 — DB settings의 gemini_api_key 사용
+    const row = queryOne("SELECT value FROM settings WHERE key = 'gemini_api_key'");
+    const apiKey = row?.value?.trim();
+    if (!apiKey) {
+        console.error('[AI] gemini_api_key가 설정되지 않았습니다. 설정 메뉴에서 AI Studio API 키를 입력하세요.');
+        return null;
+    }
 
-    const auth = await getClient();
-    if (!auth && !cloudRunUrl) return null;
-
-    const projectIdRow = queryOne("SELECT value FROM settings WHERE key = 'google_project_id'");
-    const locationRow = queryOne("SELECT value FROM settings WHERE key = 'google_location'");
-    const projectId = projectIdRow?.value?.trim();
-    const location = locationRow?.value?.trim() || 'us-central1';
-
-    const MAX_RETRIES = 3;
+    // 429 rate limit 시 60초 대기 후 1회 재시도
+    const MAX_RETRIES = 1;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     let timer;
     try {
@@ -86,166 +83,35 @@ export async function callGemini(prompt, options = {}) {
 
         const fetchPromise = (async () => {
             const modelName = 'gemini-2.5-flash';
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+            logToFile(`[AI Request] AI Studio REST: ${modelName}`);
 
-            // CASE 0: Cloud Run 중계 서버 (최우선, JSON 파일 불필요)
-            if (cloudRunUrl && cloudRunUrl.startsWith('https://')) {
-                const proxyApiUrl = `${cloudRunUrl}/api/gemini`;
-                console.log(`[AI Request] Cloud Run Proxy: ${modelName}, URL: ${cloudRunUrl}`);
-                try {
-                    const res = await fetch(proxyApiUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            prompt: prompt,
-                            model: modelName,
-                            temperature: 0,
-                            maxTokens: 8192
-                        })
-                    });
-                    const data = await res.json();
-                    if (res.ok) {
-                        let text;
-                        if (data.candidates) {
-                            if (Array.isArray(data)) {
-                                text = data.map(chunk => chunk.candidates?.[0]?.content?.parts?.[0]?.text || '').join('');
-                            } else {
-                                text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                            }
-                        } else if (data.result) {
-                            text = data.result;
-                        } else {
-                            text = JSON.stringify(data);
-                        }
-                        if (text) return text;
-                    }
-                    console.warn(`[AI Warning] Cloud Run Proxy 실패 (${res.status}), 기존 방식으로 전환`);
-                    logToFile(`[AI Warning] Cloud Run Proxy failed (${res.status}): ${JSON.stringify(data)}`);
-                } catch (proxyErr) {
-                    console.warn(`[AI Warning] Cloud Run Proxy 연결 실패: ${proxyErr.message}, 기존 방식으로 전환`);
-                    logToFile(`[AI Warning] Cloud Run Proxy error: ${proxyErr.message}`);
-                }
-            }
-
-            // CASE 1: Vertex AI with Bearer Token (AQ.A...)
-            if (auth && auth.type === 'vertex_token' && projectId) {
-                const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:streamGenerateContent`;
-                console.log(`[AI Request] Vertex AI (Bearer): ${modelName}, Project: ${projectId}`);
-
-                const res = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${auth.token}`,
-                        'Content-Type': 'application/json'
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        response_mime_type: jsonMode ? 'application/json' : 'text/plain',
+                        temperature: 0,
+                        ...(maxTokens ? { maxOutputTokens: maxTokens } : {})
                     },
-                    body: JSON.stringify({
-                        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                        generationConfig: {
-                            response_mime_type: options.jsonMode ? 'application/json' : 'text/plain',
-                            temperature: 0
-                        },
-                        ...(useGoogleSearch && !jsonMode ? { tools: [{ google_search: {} }] } : {})
-                    })
-                });
+                    ...(useGoogleSearch && !jsonMode ? { tools: [{ google_search: {} }] } : {})
+                })
+            });
 
-                const data = await res.json();
-                const keyPrefix = auth.token ? auth.token.substring(0, 5) : (auth.client?.apiKey ? auth.client.apiKey.substring(0, 5) : 'NONE');
-                if (!res.ok) {
-                    const errMsg = data.error?.message || 'Vertex AI (Bearer) Call Failed';
-                    const fullMsg = `[Auth:${keyPrefix}] ${errMsg}`;
-                    logError(`Gemini Error: ${fullMsg}`);
-                    throw new Error(fullMsg);
+            const data = await res.json();
+            if (res.ok) {
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) {
+                    logToFile(`[AI Warning] AI Studio 응답성공했으나 결과가 비어있음: ${JSON.stringify(data)}`);
+                    return '';
                 }
-
-                if (Array.isArray(data)) {
-                    return data.map(chunk => chunk.candidates?.[0]?.content?.parts?.[0]?.text || '').join('');
-                }
-                return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                return text;
             }
 
-            // CASE 2: Vertex AI with Service Account JSON → Bearer Token
-            if (projectId) {
-                try {
-                    const accessToken = await getVertexAccessToken();
-                    const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:streamGenerateContent`;
-                    logToFile(`[AI Request] Vertex AI (Service Account): ${modelName}, Project: ${projectId}`);
-
-                    const res = await fetch(url, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${accessToken}`
-                        },
-                        body: JSON.stringify({
-                            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                            generationConfig: {
-                                response_mime_type: options.jsonMode ? 'application/json' : 'text/plain',
-                                temperature: 0
-                            },
-                            ...(useGoogleSearch && !jsonMode ? { tools: [{ google_search: {} }] } : {})
-                        })
-                    });
-
-                    const data = await res.json();
-                    if (res.ok) {
-                        let text;
-                        if (Array.isArray(data)) {
-                            text = data.map(chunk => chunk.candidates?.[0]?.content?.parts?.[0]?.text || '').join('');
-                        } else {
-                            text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                        }
-                        if (!text) {
-                            logToFile(`[AI Warning] Vertex AI 응답성공했으나 결과가 비어있음: ${JSON.stringify(data)}`);
-                            return '';
-                        }
-                        return text;
-                    }
-
-                    // If Vertex API is not enabled or other error, log it and possibly fall through
-                    logToFile(`[AI Error] Vertex AI REST failed (${res.status}): ${JSON.stringify(data)}`);
-                    // Don't throw here, let it fall through to Case 3 if appropriate
-                } catch (fetchErr) {
-                    logToFile(`[AI Error] Vertex AI Fetch Exception: ${fetchErr.message}`);
-                }
-            }
-
-            // CASE 3: Standard AI Studio (AIza...) via REST
-            if (auth && auth.type === 'api_key') {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${auth.apiKey}`;
-                logToFile(`[AI Request] AI Studio REST: ${modelName}`);
-
-                try {
-                    const res = await fetch(url, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                            generationConfig: {
-                                response_mime_type: options.jsonMode ? 'application/json' : 'text/plain',
-                                temperature: 0
-                            },
-                            ...(useGoogleSearch && !jsonMode ? { tools: [{ google_search: {} }] } : {})
-                        })
-                    });
-
-                    const data = await res.json();
-                    if (res.ok) {
-                        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                        if (!text) {
-                            logToFile(`[AI Warning] AI Studio 응답성공했으나 결과가 비어있음: ${JSON.stringify(data)}`);
-                            return '';
-                        }
-                        return text;
-                    }
-
-                    logToFile(`[AI Error] AI Studio REST failed (${res.status}): ${JSON.stringify(data)}`);
-                    throw new Error(data.error?.message || 'AI Studio Call Failed');
-                } catch (restErr) {
-                    logToFile(`[AI Error] AI Studio Fetch Exception: ${restErr.message}`);
-                    throw restErr;
-                }
-            }
-
-            throw new Error('AI 인증 방식이 잘못되었습니다. API 키를 확인해주세요.');
+            logToFile(`[AI Error] AI Studio REST failed (${res.status}): ${JSON.stringify(data)}`);
+            throw new Error(data.error?.message || 'AI Studio Call Failed');
         })();
 
         const text = await Promise.race([fetchPromise, timeoutPromise]);
@@ -260,10 +126,10 @@ export async function callGemini(prompt, options = {}) {
     } catch (err) {
         if (timer) clearTimeout(timer);
 
-        // 429 재시도 (최대 3회, 10초 대기)
+        // 429 rate limit: 60초 대기 후 1회 재시도
         if ((err.message?.includes('429') || err.message?.includes('quota') || err.message?.includes('RESOURCE_EXHAUSTED')) && attempt < MAX_RETRIES) {
-            console.log(`[AI] 429 감지, 10초 후 재시도 (${attempt + 1}/${MAX_RETRIES})...`);
-            await new Promise(resolve => setTimeout(resolve, 10000));
+            console.log(`[AI] Rate limit(429) 감지 — 60초 대기 후 재시도...`);
+            await new Promise(resolve => setTimeout(resolve, 60000));
             continue;
         }
 

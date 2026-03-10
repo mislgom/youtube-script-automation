@@ -50,8 +50,9 @@ export async function renderEditor(container, { api, navigate }) {
           <div style="padding:8px 14px; border-top:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; flex-wrap:wrap; gap:6px;">
             <div style="display:flex; gap:6px; align-items:center;">
               <span id="save-status" style="font-size:0.78rem; color:#6b7280; font-weight:500;"></span>
-              <button id="new-script-btn" style="background:rgba(255,255,255,0.06); color:#9ca3af; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:5px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">📝 새 대본</button>
               <button id="spellcheck-btn" style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); border-radius:6px; padding:5px 12px; font-size:0.78rem; font-weight:600; cursor:pointer;">🔤 맞춤법 검사</button>
+              <button id="add-linenum-btn" style="background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); padding:5px 12px; border-radius:6px; font-size:0.78rem; font-weight:600; cursor:pointer;">🔢 줄 번호 매김</button>
+              <button id="del-linenum-btn" style="background:rgba(239,68,68,0.1); color:#f87171; border:1px solid rgba(239,68,68,0.3); padding:5px 12px; border-radius:6px; font-size:0.78rem; font-weight:600; cursor:pointer;">✂️ 줄 번호 삭제</button>
               <button id="delete-script-btn" style="display:none; background:rgba(239,68,68,0.1); color:#f87171; border:1px solid rgba(239,68,68,0.2); border-radius:6px; padding:5px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">🗑 삭제</button>
               <button id="view-all-btn" style="background:rgba(255,255,255,0.06); color:#9ca3af; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:5px 10px; font-size:0.78rem; font-weight:600; cursor:pointer;">👁 전체보기</button>
             </div>
@@ -162,7 +163,8 @@ export async function renderEditor(container, { api, navigate }) {
     const exportBtn          = document.getElementById('export-script-btn');
     const exportAiBtn        = document.getElementById('export-ai-btn');
     const spellcheckBtn      = document.getElementById('spellcheck-btn');
-    const newScriptBtn       = document.getElementById('new-script-btn');
+    const addLinenumBtn      = document.getElementById('add-linenum-btn');
+    const delLinenumBtn      = document.getElementById('del-linenum-btn');
     const newHeaderBtn       = document.getElementById('new-header-btn');
     const deleteBtn          = document.getElementById('delete-script-btn');
     const listBtn            = document.getElementById('script-list-btn');
@@ -340,6 +342,277 @@ export async function renderEditor(container, { api, navigate }) {
     }
 
     // ─── Edit Button ────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════
+    // 줄번호 기반 지시문 파싱 엔진
+    // ═══════════════════════════════════════════════════════════
+
+    const INST_PATTERNS = {
+        delete:  /^\[삭제\]\s*(\d{4})(?:-(\d{4}))?$/,
+        insert:  /^\[삽입\]\s*(\d{4})\s*뒤에:/,
+        replace: /^\[교체\]\s*(\d{4})(?:-(\d{4}))?:(.*)/
+    };
+
+    function parseInstructions(text) {
+        const lines = text.split('\n');
+        const commands = [];
+        const errors = [];
+        let i = 0;
+
+        while (i < lines.length) {
+            const line = lines[i].trim();
+
+            // ── 삭제 ──────────────────────────────────────────
+            const delM = line.match(INST_PATTERNS.delete);
+            if (delM) {
+                commands.push({
+                    type: 'delete',
+                    startLine: parseInt(delM[1]),
+                    endLine: parseInt(delM[2] || delM[1])
+                });
+                i++; continue;
+            }
+
+            // ── 삽입 ──────────────────────────────────────────
+            const insM = line.match(INST_PATTERNS.insert);
+            if (insM) {
+                const afterLine = parseInt(insM[1]);
+                const insertLines = [];
+                i++;
+                while (i < lines.length && !/^\[(삭제|삽입|교체)\]/.test(lines[i].trim())) {
+                    insertLines.push(lines[i]);
+                    i++;
+                }
+                commands.push({ type: 'insert', afterLine, text: insertLines });
+                continue;
+            }
+
+            // ── 교체 ──────────────────────────────────────────
+            const repM = line.match(INST_PATTERNS.replace);
+            if (repM) {
+                const startLine = parseInt(repM[1]);
+                const endLine = parseInt(repM[2] || repM[1]);
+                const inlineText = repM[3].trim();
+                const replaceLines = [];
+                if (inlineText) {
+                    replaceLines.push(inlineText);
+                    i++;
+                } else {
+                    i++;
+                    while (i < lines.length && !/^\[(삭제|삽입|교체)\]/.test(lines[i].trim())) {
+                        replaceLines.push(lines[i]);
+                        i++;
+                    }
+                }
+                commands.push({ type: 'replace', startLine, endLine, text: replaceLines });
+                continue;
+            }
+
+            // 인식 불가 줄 (빈 줄 제외) — 무시
+            i++;
+        }
+
+        return { commands, errors };
+    }
+
+    function validateCommands(commands, existingLineNums) {
+        const errors = [];
+        for (const cmd of commands) {
+            if (cmd.type === 'delete') {
+                if (cmd.startLine > cmd.endLine) {
+                    errors.push(`ERROR: 줄 ${String(cmd.startLine).padStart(4,'0')}-${String(cmd.endLine).padStart(4,'0')} — 잘못된 범위입니다 (시작 ≤ 끝)`);
+                } else {
+                    for (let n = cmd.startLine; n <= cmd.endLine; n++) {
+                        if (!existingLineNums.has(n))
+                            errors.push(`ERROR: 줄 ${String(n).padStart(4,'0')} — 존재하지 않는 줄번호입니다`);
+                    }
+                }
+            } else if (cmd.type === 'insert') {
+                if (!existingLineNums.has(cmd.afterLine))
+                    errors.push(`ERROR: 줄 ${String(cmd.afterLine).padStart(4,'0')} — 삽입 기준 줄이 존재하지 않습니다`);
+                if (cmd.text.length === 0 || cmd.text.every(l => l.trim() === ''))
+                    errors.push(`ERROR: 줄 ${String(cmd.afterLine).padStart(4,'0')} — 삽입할 텍스트가 비어있습니다`);
+            } else if (cmd.type === 'replace') {
+                if (cmd.startLine > cmd.endLine) {
+                    errors.push(`ERROR: 줄 ${String(cmd.startLine).padStart(4,'0')}-${String(cmd.endLine).padStart(4,'0')} — 잘못된 범위입니다 (시작 ≤ 끝)`);
+                } else {
+                    for (let n = cmd.startLine; n <= cmd.endLine; n++) {
+                        if (!existingLineNums.has(n))
+                            errors.push(`ERROR: 줄 ${String(n).padStart(4,'0')} — 존재하지 않는 줄번호입니다`);
+                    }
+                }
+                if (cmd.text.length === 0 || cmd.text.every(l => l.trim() === ''))
+                    errors.push(`ERROR: 줄 ${String(cmd.startLine).padStart(4,'0')} — 교체할 텍스트가 비어있습니다`);
+            }
+        }
+        return errors;
+    }
+
+    function executeInstructions(lines, commands) {
+        // 줄번호 → 배열 인덱스 맵 생성
+        function buildLineMap(arr) {
+            const map = new Map();
+            arr.forEach((line, idx) => {
+                const m = line.match(/^(\d{4})\s/);
+                if (m) map.set(parseInt(m[1]), idx);
+            });
+            return map;
+        }
+
+        const deletes  = commands.filter(c => c.type === 'delete') .sort((a,b) => b.startLine - a.startLine);
+        const replaces = commands.filter(c => c.type === 'replace').sort((a,b) => b.startLine - a.startLine);
+        const inserts  = commands.filter(c => c.type === 'insert') .sort((a,b) => b.afterLine  - a.afterLine);
+
+        const result = [...lines];
+        const details = [];
+
+        const stripNum = l => l.replace(/^\d{4}\s/, '');
+
+        // 1) 삭제
+        for (const cmd of deletes) {
+            const map = buildLineMap(result);
+            const startIdx = map.get(cmd.startLine);
+            const endIdx   = map.get(cmd.endLine);
+            if (startIdx === undefined || endIdx === undefined) continue;
+            const count = endIdx - startIdx + 1;
+            const removed = result.slice(startIdx, startIdx + count).map(stripNum);
+            result.splice(startIdx, count);
+            const lineLabel = cmd.startLine === cmd.endLine
+                ? String(cmd.startLine).padStart(4,'0')
+                : `${String(cmd.startLine).padStart(4,'0')}-${String(cmd.endLine).padStart(4,'0')}`;
+            details.push({
+                type: 'delete',
+                label: `줄 ${lineLabel} 삭제됨 (${count}줄)`,
+                originalText: removed.join('\n')
+            });
+        }
+
+        // 2) 교체
+        for (const cmd of replaces) {
+            const map = buildLineMap(result);
+            const startIdx = map.get(cmd.startLine);
+            const endIdx   = map.get(cmd.endLine);
+            if (startIdx === undefined || endIdx === undefined) continue;
+            const count = endIdx - startIdx + 1;
+            const removed = result.slice(startIdx, startIdx + count).map(stripNum);
+            result.splice(startIdx, count, ...cmd.text);
+            const lineLabel = cmd.startLine === cmd.endLine
+                ? String(cmd.startLine).padStart(4,'0')
+                : `${String(cmd.startLine).padStart(4,'0')}-${String(cmd.endLine).padStart(4,'0')}`;
+            details.push({
+                type: 'replace',
+                label: `줄 ${lineLabel} 교체됨 (${count}→${cmd.text.length}줄)`,
+                originalText: removed.join('\n'),
+                newText: cmd.text.join('\n')
+            });
+        }
+
+        // 3) 삽입
+        for (const cmd of inserts) {
+            const map = buildLineMap(result);
+            const afterIdx = map.get(cmd.afterLine);
+            if (afterIdx === undefined) continue;
+            result.splice(afterIdx + 1, 0, ...cmd.text);
+            details.push({
+                type: 'insert',
+                label: `줄 ${String(cmd.afterLine).padStart(4,'0')} 뒤에 ${cmd.text.length}줄 삽입됨`,
+                newText: cmd.text.join('\n')
+            });
+        }
+
+        // 줄번호 제거
+        const resultLines = result.map(l => l.replace(/^\d{4}\s/, ''));
+
+        return { resultText: resultLines.join('\n'), appliedCount: details.length, details };
+    }
+
+    function showInstructionErrors(errors) {
+        clearAIResult();
+        let html = `<div style="background:rgba(239,68,68,0.1); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.85rem; color:#f87171; font-weight:600;">
+            ❌ 지시문 오류 — ${errors.length}건의 오류가 있습니다
+        </div>`;
+        for (const err of errors) {
+            html += `<div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:7px 12px; margin-bottom:8px; color:#f87171; font-size:0.83rem;">❌ ${escHtml(err)}</div>`;
+        }
+        diffViewer.innerHTML = html;
+        diffViewer.style.display = 'block';
+        aiPlaceholder.style.display = 'none';
+        applyEditBtn.style.display = 'none';
+        insertToOriginalBtn.style.display = 'none';
+    }
+
+    function showInstructionResults(execResult) {
+        const { details, appliedCount } = execResult;
+        const deleteCnt  = details.filter(d => d.type === 'delete').length;
+        const replaceCnt = details.filter(d => d.type === 'replace').length;
+        const insertCnt  = details.filter(d => d.type === 'insert').length;
+
+        const parts = [];
+        if (deleteCnt)  parts.push(`삭제 ${deleteCnt}건`);
+        if (replaceCnt) parts.push(`교체 ${replaceCnt}건`);
+        if (insertCnt)  parts.push(`삽입 ${insertCnt}건`);
+
+        let html = `<div style="background:rgba(46,204,64,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.85rem; color:#6ee7b7; font-weight:600;">
+            ✅ 지시문 처리 완료 — ${parts.join(', ')} (총 ${appliedCount}건)
+        </div>`;
+
+        details.forEach((d, i) => {
+            const detailId = `inst-detail-${i}`;
+
+            // 상세 내용 HTML 조립
+            let detailHtml = '';
+            if (d.type === 'delete') {
+                detailHtml = `
+                    <div style="margin-top:6px; font-size:0.78rem; color:rgba(255,255,255,0.4); margin-bottom:3px;">🔴 삭제된 내용:</div>
+                    <div style="background:rgba(239,68,68,0.08); border-left:3px solid #f87171; color:#fca5a5; padding:6px 10px; border-radius:4px; font-size:0.8rem; white-space:pre-wrap; text-decoration:line-through;">${escHtml(d.originalText || '')}</div>`;
+            } else if (d.type === 'replace') {
+                detailHtml = `
+                    <div style="margin-top:6px; font-size:0.78rem; color:rgba(255,255,255,0.4); margin-bottom:3px;">🔴 원본:</div>
+                    <div style="background:rgba(239,68,68,0.08); border-left:3px solid #f87171; color:#fca5a5; padding:6px 10px; border-radius:4px; font-size:0.8rem; white-space:pre-wrap; text-decoration:line-through;">${escHtml(d.originalText || '')}</div>
+                    <div style="margin-top:4px; font-size:0.78rem; color:rgba(255,255,255,0.4); margin-bottom:3px;">🟢 변경:</div>
+                    <div style="background:rgba(46,204,64,0.08); border-left:3px solid #6ee7b7; color:#a7f3d0; padding:6px 10px; border-radius:4px; font-size:0.8rem; white-space:pre-wrap;">${escHtml(d.newText || '')}</div>`;
+            } else if (d.type === 'insert') {
+                detailHtml = `
+                    <div style="margin-top:6px; font-size:0.78rem; color:rgba(255,255,255,0.4); margin-bottom:3px;">🟢 삽입된 내용:</div>
+                    <div style="background:rgba(46,204,64,0.08); border-left:3px solid #6ee7b7; color:#a7f3d0; padding:6px 10px; border-radius:4px; font-size:0.8rem; white-space:pre-wrap;">${escHtml(d.newText || '')}</div>`;
+            }
+
+            html += `
+            <div style="background:rgba(46,204,64,0.07); border:1px solid rgba(46,204,64,0.3); border-radius:6px; margin-bottom:8px; overflow:hidden;">
+                <div class="inst-card-header" data-detail="${detailId}"
+                     style="display:flex; align-items:center; justify-content:space-between; padding:8px 12px; cursor:pointer; user-select:none;">
+                    <span style="color:#6ee7b7; font-size:0.83rem; font-weight:600;">✅ ${escHtml(d.label)}</span>
+                    <span class="inst-toggle-arrow" style="color:#4ade80; font-size:0.75rem; font-weight:700; transition:transform 0.2s; transform:rotate(-90deg);">▼ 상세보기</span>
+                </div>
+                <div id="${detailId}" style="display:none; padding:0 12px 10px 12px; border-top:1px solid rgba(46,204,64,0.15);">
+                    ${detailHtml}
+                </div>
+            </div>`;
+        });
+
+        diffViewer.innerHTML = html;
+        diffViewer.style.display = 'block';
+        aiPlaceholder.style.display = 'none';
+        applyEditBtn.style.display = 'block';
+        insertToOriginalBtn.style.display = 'block';
+        setApplyBtnEnabled(true);
+        setExportAiEnabled(false);
+        diffCountLabel.textContent = `처리: ${appliedCount}건`;
+
+        // 토글 이벤트
+        diffViewer.querySelectorAll('.inst-card-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const detail = document.getElementById(header.dataset.detail);
+                const arrow  = header.querySelector('.inst-toggle-arrow');
+                if (!detail) return;
+                const open = detail.style.display !== 'none';
+                detail.style.display = open ? 'none' : 'block';
+                arrow.textContent = open ? '▼ 상세보기' : '▲ 접기';
+                arrow.style.transform = open ? 'rotate(-90deg)' : 'rotate(0deg)';
+            });
+        });
+    }
+
+    // ─── 수정 시작 핸들러 ─────────────────────────────────────
     startEditBtn.addEventListener('click', async () => {
         if (isEditing) {
             if (editAbortController) editAbortController.abort();
@@ -348,33 +621,75 @@ export async function renderEditor(container, { api, navigate }) {
         const content = contentInput.value.trim();
         if (!content) return showToast('대본 내용을 먼저 입력해주세요.', 'warning');
 
-        editAbortController = new AbortController();
-        setEditBtnStop();
-        clearAIResult();
-        aiPlaceholder.style.display = 'flex';
-        aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">⏳</div><div style="color:#a5b4fc; font-size:0.9rem; font-weight:600;">AI가 대본을 수정하고 있습니다...<br><span style="color:rgba(255,255,255,0.35); font-size:0.8rem;">잠시만 기다려주세요</span></div></div>`;
+        const instructions = instructionsInput.value.trim();
+        const hasStructured = /\[(삭제|삽입|교체)\]/.test(instructions);
 
-        try {
-            originalTextForDiff = contentInput.value;
-            const data = await api.editScript(content, instructionsInput.value.trim(), editAbortController.signal);
-            editedTextForDiff = data.content;
-            if (data.parts && data.parts.length > 0) {
-                renderPartsResult(data);
-            } else {
-                renderDiff(originalTextForDiff, editedTextForDiff);
+        if (hasStructured) {
+            // ── JS 직접 처리 (API 호출 없음) ────────────────────
+            if (!/^\d{4}\s/m.test(content)) {
+                clearAIResult();
+                diffViewer.innerHTML = `<div style="background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:8px; padding:12px 14px; color:#fbbf24; font-size:0.88rem; font-weight:600;">
+                    ⚠️ 줄번호가 없는 대본입니다. 먼저 '🔢 줄번호 매김' 버튼을 눌러주세요.</div>`;
+                diffViewer.style.display = 'block';
+                aiPlaceholder.style.display = 'none';
+                return;
             }
-            showToast('대본 수정이 완료되었습니다!', 'success');
-        } catch (err) {
-            if (err.name === 'AbortError') {
-                aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">⏹</div><div style="color:#a5b4fc; font-size:0.9rem; font-weight:600;">수정이 중단되었습니다.</div></div>`;
-                showToast('대본 수정을 중단하였습니다.', 'warning');
-            } else {
-                aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">❌</div><div style="color:#f87171; font-size:0.9rem; font-weight:600;">수정 실패: ${err.message}</div></div>`;
-                showToast('수정 실패: ' + err.message, 'error');
+
+            const parsed = parseInstructions(instructions);
+
+            // 존재하는 줄번호 Set 구성
+            const existingLineNums = new Set();
+            content.split('\n').forEach(line => {
+                const m = line.match(/^(\d{4})\s/);
+                if (m) existingLineNums.add(parseInt(m[1]));
+            });
+
+            const valErrors = validateCommands(parsed.commands, existingLineNums);
+            if (valErrors.length > 0) {
+                showInstructionErrors(valErrors);
+                return;
             }
-        } finally {
-            setEditBtnStart();
-            editAbortController = null;
+            if (parsed.commands.length === 0) {
+                showToast('인식된 지시문 명령어가 없습니다.', 'warning');
+                return;
+            }
+
+            const lines = content.split('\n');
+            originalTextForDiff = content;
+            const execResult = executeInstructions(lines, parsed.commands);
+            editedTextForDiff = execResult.resultText;
+            showInstructionResults(execResult);
+
+        } else {
+            // ── 기존 Gemini API 호출 로직 (변경 없음) ───────────
+            editAbortController = new AbortController();
+            setEditBtnStop();
+            clearAIResult();
+            aiPlaceholder.style.display = 'flex';
+            aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">⏳</div><div style="color:#a5b4fc; font-size:0.9rem; font-weight:600;">AI가 대본을 수정하고 있습니다...<br><span style="color:rgba(255,255,255,0.35); font-size:0.8rem;">잠시만 기다려주세요</span></div></div>`;
+
+            try {
+                originalTextForDiff = contentInput.value;
+                const data = await api.editScript(content, instructions, editAbortController.signal);
+                editedTextForDiff = data.content;
+                if (data.parts && data.parts.length > 0) {
+                    renderPartsResult(data);
+                } else {
+                    renderDiff(originalTextForDiff, editedTextForDiff);
+                }
+                showToast('대본 수정이 완료되었습니다!', 'success');
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">⏹</div><div style="color:#a5b4fc; font-size:0.9rem; font-weight:600;">수정이 중단되었습니다.</div></div>`;
+                    showToast('대본 수정을 중단하였습니다.', 'warning');
+                } else {
+                    aiPlaceholder.innerHTML = `<div><div style="font-size:1.8rem; margin-bottom:10px;">❌</div><div style="color:#f87171; font-size:0.9rem; font-weight:600;">수정 실패: ${err.message}</div></div>`;
+                    showToast('수정 실패: ' + err.message, 'error');
+                }
+            } finally {
+                setEditBtnStart();
+                editAbortController = null;
+            }
         }
     });
 
@@ -622,6 +937,12 @@ export async function renderEditor(container, { api, navigate }) {
         for (let i = 0; i < chunks.length; i++) {
             spellcheckBtn.textContent = `🔄 검사 중... (${i + 1}/${chunks.length})`;
             setSpellcheckProgress(i + 1, chunks.length);
+
+            // 청크 간 15초 대기 (gemini-2.5-flash 무료 5 RPM 제한 대응)
+            if (i > 0) {
+                spellcheckBtn.textContent = `⏳ 대기 중... (${i + 1}/${chunks.length})`;
+                await new Promise(r => setTimeout(r, 15000));
+            }
 
             try {
                 const res = await fetch('/api/analysis/spellcheck', {
@@ -877,8 +1198,26 @@ export async function renderEditor(container, { api, navigate }) {
         a.click(); URL.revokeObjectURL(a.href);
     });
 
+    // ─── Line Numbers ────────────────────────────────────────────
+    addLinenumBtn.addEventListener('click', () => {
+        const text = contentInput.value;
+        if (!text.trim()) return;
+        if (/^\d{4} /m.test(text)) { alert('이미 줄번호가 매겨져 있습니다.'); return; }
+        contentInput.value = text.split('\n')
+            .map((line, i) => String(i + 1).padStart(4, '0') + ' ' + line)
+            .join('\n');
+    });
+
+    delLinenumBtn.addEventListener('click', () => {
+        const text = contentInput.value;
+        if (!text.trim()) return;
+        if (!/^\d{4} /m.test(text)) { alert('줄번호가 없는 텍스트입니다.'); return; }
+        contentInput.value = text.split('\n')
+            .map(line => line.replace(/^\d{4} /, ''))
+            .join('\n');
+    });
+
     // ─── New / Delete ────────────────────────────────────────────
-    newScriptBtn.addEventListener('click', () => resetEditor());
     newHeaderBtn.addEventListener('click', () => resetEditor());
     deleteBtn.addEventListener('click', async () => {
         if (!confirm('삭제하시겠습니까?')) return;

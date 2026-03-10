@@ -78,7 +78,9 @@ async function start() {
     try {
         await initDB();
         try { ensureYadamCategories(); console.log('✅ 야담 카테고리 초기화 완료'); } catch (e) { console.error('[CategoryInit]', e.message); }
-        try { startBackgroundWorker(); console.log('✅ 백그라운드 워커 시작'); } catch (e) { console.error('[WorkerInit]', e.message); }
+        // 백그라운드 워커 자동 시작 비활성화 (AI quota 보호 — 수동 시작만 허용)
+        // try { startBackgroundWorker(); console.log('✅ 백그라운드 워커 시작'); } catch (e) { console.error('[WorkerInit]', e.message); }
+        console.log('⏸ 백그라운드 워커 자동 시작 비활성화 (수동으로 시작하세요)');
         app.listen(PORT, () => {
             console.log(`🚀 서버 실행 중: http://localhost:${PORT}`);
             console.log(`📊 API: http://localhost:${PORT}/api/health`);

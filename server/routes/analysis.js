@@ -1089,6 +1089,113 @@ ${numberedInput}
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/analysis/scripts/line-edit — 줄번호 기반 정밀 수정 엔진
+router.post('/scripts/line-edit', async (req, res) => {
+    try {
+        const { content, edit_requests } = req.body;
+        if (!content) return res.status(400).json({ error: '대본 내용을 입력해주세요.' });
+        if (!Array.isArray(edit_requests) || edit_requests.length === 0)
+            return res.status(400).json({ error: 'edit_requests 배열이 필요합니다.' });
+
+        // 사전 검증: start_line > end_line 요청 처리
+        const validatedRequests = edit_requests.map(r => {
+            if ((r.edit_type === 'DELETE' || r.edit_type === 'REPLACE') &&
+                r.start_line != null && r.end_line != null && r.start_line > r.end_line) {
+                return { ...r, _invalid: true, _invalidReason: 'start_line이 end_line보다 큽니다.' };
+            }
+            return r;
+        });
+
+        const original_line_count = content.split('\n').length;
+
+        const systemPrompt = `당신은 대본 편집 엔진입니다.
+역할: 줄번호가 매겨진 원본 대본에서, 주어진 수정 요청(삭제/삽입/교체)을 정확히 수행합니다.
+
+규칙:
+1. 수정 요청에 명시된 줄 번호와 범위만 정확히 수정하세요.
+2. 요청 범위 밖의 텍스트는 한 글자도 변경하지 마세요.
+3. 줄번호(0001 형식)는 제거하고 순수 텍스트만 반환하세요.
+4. DELETE: start_line~end_line 범위의 줄을 삭제합니다.
+5. INSERT: insert_after_line 바로 다음에 insert_text를 삽입합니다.
+6. REPLACE: start_line~end_line 범위를 삭제하고 그 자리에 insert_text를 삽입합니다.
+7. 여러 요청이 있으면 줄번호가 큰 것부터 역순으로 처리하세요 (앞쪽 줄번호 밀림 방지).
+8. 전체 재작성, 문체 변경, 플롯 수정은 절대 금지입니다.
+9. 반드시 아래 JSON 형식만 반환하세요. 다른 텍스트는 출력하지 마세요.`;
+
+        const userPrompt = `[ORIGINAL_SCRIPT]
+${content}
+
+[EDIT_REQUESTS]
+${JSON.stringify(validatedRequests.filter(r => !r._invalid), null, 2)}
+
+[TASK]
+위 수정 요청을 원본 대본에 정확히 적용하고, 아래 JSON 형식으로만 반환하세요:
+{
+  "applied": true,
+  "results": [
+    {
+      "request_id": "EDIT_1",
+      "applied": true,
+      "reason": "성공적으로 삭제됨",
+      "affected_lines": { "start": 5, "end": 7 }
+    }
+  ],
+  "updated_script": "줄번호 제거된 전체 수정 대본 텍스트"
+}
+
+주의:
+- updated_script에는 줄번호(0001 등)를 포함하지 마세요.
+- 수정 요청 외의 내용은 원본 그대로 유지하세요.
+- 적용 불가능한 요청은 applied:false, reason에 사유를 기재하세요.`;
+
+        const raw = await callGemini(systemPrompt + '\n\n' + userPrompt, {
+            jsonMode: true,
+            maxTokens: 16384
+        });
+        if (!raw) return res.status(503).json({ error: 'Gemini API를 사용할 수 없습니다.' });
+
+        // JSON 파싱
+        let parsed;
+        try {
+            parsed = JSON.parse(raw.replace(/```json\n?|\n?```/g, '').trim());
+        } catch (e) {
+            return res.status(500).json({ error: 'JSON 파싱 실패', raw: raw.slice(0, 500) });
+        }
+
+        // updated_script 검증
+        if (!parsed.updated_script) {
+            return res.status(500).json({ error: 'updated_script 비어있음', raw: raw.slice(0, 500) });
+        }
+
+        // 줄번호 패턴이 남아있으면 자동 제거
+        const cleaned = parsed.updated_script
+            .split('\n')
+            .map(line => line.replace(/^\d{4} /, ''))
+            .join('\n');
+
+        // 사전 검증에서 invalid로 처리된 요청 결과 병합
+        const resultsFromAI = Array.isArray(parsed.results) ? parsed.results : [];
+        const invalidResults = validatedRequests
+            .filter(r => r._invalid)
+            .map(r => ({
+                request_id: r.request_id,
+                applied: false,
+                reason: r._invalidReason,
+                affected_lines: null
+            }));
+
+        const mergedResults = [...resultsFromAI, ...invalidResults];
+
+        res.json({
+            applied: parsed.applied !== false,
+            results: mergedResults,
+            updated_script: cleaned,
+            original_line_count,
+            updated_line_count: cleaned.split('\n').length
+        });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ═══════════════════════════════════════════════════════════
 // 세부 카테고리 AI 자동 분류
 // ═══════════════════════════════════════════════════════════
