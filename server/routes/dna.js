@@ -210,6 +210,161 @@ router.post('/group', (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// POST /api/dna/local-dna
+// body: { channel_id?, category? }
+// Gemini 없이 DB 집계만으로 떡상 DNA 추출
+// ─────────────────────────────────────────────
+router.post('/local-dna', (req, res) => {
+    try {
+        const { channel_id, category } = req.body || {};
+
+        // ── 1. 영상 조회 (channel_id 또는 전체) ────────────────
+        let videos;
+        if (channel_id) {
+            videos = queryAll(
+                `SELECT v.*, c.subscriber_count FROM videos v
+                 JOIN channels c ON v.channel_id = c.id
+                 WHERE v.channel_id = ?`,
+                [channel_id]
+            );
+        } else {
+            videos = queryAll(
+                `SELECT v.*, c.subscriber_count FROM videos v
+                 JOIN channels c ON v.channel_id = c.id`
+            );
+        }
+
+        if (videos.length === 0) return res.status(404).json({ error: '영상 데이터가 없습니다.' });
+
+        // ── 2. 떡상 판정: view_count / subscriber_count >= 50 ──
+        const viralVideos = videos.filter(v => {
+            const subs = v.subscriber_count || 0;
+            return subs > 0 && (v.view_count || 0) / subs >= 50;
+        });
+        // 떡상이 너무 적으면 상위 10%로 대체
+        const useVideos = viralVideos.length >= 5 ? viralVideos
+            : [...videos].sort((a, b) => (b.view_count || 0) - (a.view_count || 0))
+                         .slice(0, Math.max(5, Math.floor(videos.length * 0.1)));
+
+        // ── 3. 제목 패턴 분석 ────────────────────────────────
+        const STOPWORDS = new Set([
+            '이','가','을','를','의','에','에서','으로','로','와','과','는','은','도','만',
+            '부터','까지','에게','한테','보다','처럼','같이','그리고','하지만','그러나',
+            '또는','그래서','때문에','하는','했다','있는','없는','된다','이다','합니다',
+            '있다','없다','하다','되다','같다','이런','그런','저런','어떤','무슨'
+        ]);
+
+        const titles = useVideos.map(v => v.title || '');
+        const avgLength = titles.reduce((s, t) => s + t.length, 0) / (titles.length || 1);
+
+        // 특수문자 빈도
+        const specialChars = { '?': 0, '!': 0, '…': 0, '"': 0, "'": 0, '【': 0, '】': 0, '|': 0 };
+        titles.forEach(t => {
+            for (const ch of Object.keys(specialChars)) {
+                specialChars[ch] += (t.split(ch).length - 1);
+            }
+        });
+
+        // 자주 등장하는 단어
+        const wordFreq = {};
+        titles.forEach(t => {
+            t.replace(/[^\w\s가-힣]/g, ' ').split(/\s+/).forEach(w => {
+                if (w.length >= 2 && w.length <= 6 && !STOPWORDS.has(w)) {
+                    wordFreq[w] = (wordFreq[w] || 0) + 1;
+                }
+            });
+        });
+        const topKeywords = Object.entries(wordFreq)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 20)
+            .map(([w]) => w);
+
+        // 제목 구조 패턴
+        const n = titles.length || 1;
+        const structure_pattern = {
+            question:    Math.round(titles.filter(t => t.trimEnd().endsWith('?')).length / n * 100),
+            exclamation: Math.round(titles.filter(t => t.trimEnd().endsWith('!')).length / n * 100),
+            ellipsis:    Math.round(titles.filter(t => t.includes('…') || t.includes('...')).length / n * 100),
+            quote:       Math.round(titles.filter(t => t.includes('\u201c') || t.includes('\u201d') || t.includes('\u2018') || t.includes('\u2019') || t.includes('"')).length / n * 100),
+        };
+        structure_pattern.narrative = Math.max(0, 100 - structure_pattern.question - structure_pattern.exclamation - structure_pattern.ellipsis - structure_pattern.quote);
+
+        // ── 4. 게시 타이밍 분석 ──────────────────────────────
+        const DAYS_KO = ['일', '월', '화', '수', '목', '금', '토'];
+        const dayDist = { '월': 0, '화': 0, '수': 0, '목': 0, '금': 0, '토': 0, '일': 0 };
+        const hourDist = {};
+        for (let h = 0; h < 24; h++) hourDist[String(h)] = 0;
+
+        useVideos.forEach(v => {
+            if (!v.published_at) return;
+            const d = new Date(v.published_at);
+            const dayKo = DAYS_KO[d.getDay()];
+            dayDist[dayKo] = (dayDist[dayKo] || 0) + 1;
+            hourDist[String(d.getHours())]++;
+        });
+
+        const bestDays = Object.entries(dayDist).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([d]) => d);
+        const bestHours = Object.entries(hourDist).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([h]) => Number(h));
+
+        // ── 5. 태그 분석 ─────────────────────────────────────
+        const tagFreq = {};
+        useVideos.forEach(v => {
+            if (!v.tags) return;
+            v.tags.split(',').map(t => t.trim()).filter(Boolean).forEach(tag => {
+                tagFreq[tag] = (tagFreq[tag] || 0) + 1;
+            });
+        });
+        const topTags = Object.entries(tagFreq).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([t]) => t);
+
+        // ── 6. 장르 분포 (video_categories 기반) ─────────────
+        const videoDbIds = useVideos.map(v => v.id);
+        const genreDist = {};
+        if (videoDbIds.length > 0) {
+            const placeholders = videoDbIds.map(() => '?').join(',');
+            const catRows = queryAll(
+                `SELECT c.name, COUNT(*) as cnt FROM video_categories vc
+                 JOIN categories c ON vc.category_id = c.id
+                 WHERE vc.video_id IN (${placeholders}) AND c.group_name IN ('사건유형','소재유형','시대유형')
+                 GROUP BY c.name ORDER BY cnt DESC LIMIT 10`,
+                videoDbIds
+            );
+            const total = catRows.reduce((s, r) => s + r.cnt, 0) || 1;
+            catRows.forEach(r => { genreDist[r.name] = Math.round(r.cnt / total * 100); });
+        }
+
+        // ── 7. 결과 조립 ─────────────────────────────────────
+        const dna = {
+            viral_count: useVideos.length,
+            total_count: videos.length,
+            viral_rate: Math.round(useVideos.length / videos.length * 100),
+            title_analysis: {
+                avg_length: Math.round(avgLength),
+                top_keywords: topKeywords,
+                structure_pattern,
+                special_chars: specialChars
+            },
+            timing_analysis: {
+                best_days: bestDays,
+                best_hours: bestHours,
+                day_distribution: dayDist,
+                hour_distribution: hourDist
+            },
+            tag_analysis: { top_tags: topTags },
+            genre_distribution: genreDist,
+            _meta: {
+                source: 'local',
+                videoCount: useVideos.length,
+                usedFallback: viralVideos.length < 5
+            }
+        };
+
+        res.json({ dna });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─────────────────────────────────────────────
 // GET /api/dna/channels — 채널 목록 (셀렉트용)
 // ─────────────────────────────────────────────
 router.get('/channels', (req, res) => {

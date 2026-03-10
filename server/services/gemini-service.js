@@ -143,8 +143,8 @@ export async function callGemini(prompt, options = {}) {
             authErr.errorType = 'AUTH_ERROR';
             throw authErr;
         }
-        if (err.message.includes('429') || err.message.includes('quota')) {
-            const quotaErr = new Error('API 사용량이 초과되었습니다.');
+        if (err.message.includes('429') || err.message.includes('quota') || err.message.includes('RESOURCE_EXHAUSTED')) {
+            const quotaErr = new Error('일일 API 한도 초과. 오후 4시 이후 다시 시도해주세요.');
             quotaErr.status = 429;
             quotaErr.errorType = 'QUOTA_EXCEEDED';
             throw quotaErr;

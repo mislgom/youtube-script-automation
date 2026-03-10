@@ -157,38 +157,178 @@ export async function renderDna(container, { api }) {
         }
     });
 
-    // ─── Step 2: DNA 분석 실행 ───────────────────
+    // ─── Step 2: DNA 분석 실행 (로컬 우선) ─────────
     $('#dna-analyze-btn').addEventListener('click', async () => {
         if (collectedSpikes.length === 0) { showToast('먼저 영상을 수집해주세요.', 'warning'); return; }
 
         const resultSection = $('#dna-result-section');
         resultSection.classList.remove('hidden');
-        showSpinner(resultSection, 'Gemini AI가 DNA를 추출하는 중...');
+        showSpinner(resultSection, '📊 DB 데이터로 로컬 DNA 추출 중... (Gemini 없음)');
 
+        const channelId = $('#dna-channel-select').value;
         const category = $('#dna-category').value;
 
         try {
-            const videoIds = collectedSpikes.map(v => v.id);
-            const { dna } = await api.analyzeDna({ videoIds, category });
+            const { dna } = await api.extractLocalDna({ channel_id: channelId || undefined, category });
             currentDna = dna;
-
-            renderDnaResult(resultSection, dna);
-
-            // 자동으로 황금 키워드 추출
-            await extractKeywords(dna, category);
+            renderLocalDnaResult(resultSection, dna);
         } catch (err) {
-            const cached = await tryCache('dna_' + category);
             resultSection.innerHTML = `<div class="card" style="border:1px solid var(--danger);">
-        <p style="color:var(--danger); font-weight:700;">❌ DNA 분석 실패: ${err.message}</p>
-        ${cached ? `<div style="margin-top:12px; font-size:0.78rem; color:var(--text-muted);">⚠ 마지막 성공 결과를 표시합니다.</div>` : ''}
+        <p style="color:var(--danger); font-weight:700;">❌ 로컬 DNA 추출 실패: ${err.message}</p>
         <button class="btn btn-secondary btn-xs mt-8" id="retry-analyze-btn">🔁 재시도</button>
       </div>`;
-            if (cached) { currentDna = cached; renderDnaResult(resultSection, cached); }
             resultSection.querySelector('#retry-analyze-btn')?.addEventListener('click', () =>
                 $('#dna-analyze-btn').click()
             );
         }
     });
+
+    // ─── 로컬 DNA 결과 렌더링 ────────────────────
+    function renderLocalDnaResult(el, dna) {
+        const ta = dna.title_analysis || {};
+        const tim = dna.timing_analysis || {};
+        const tag = dna.tag_analysis || {};
+        const genre = dna.genre_distribution || {};
+        const sp = ta.structure_pattern || {};
+
+        // 장르 바 차트
+        const genreEntries = Object.entries(genre).sort((a, b) => b[1] - a[1]);
+        const genreHtml = genreEntries.length > 0
+            ? genreEntries.map(([name, pct]) => `
+                <div style="margin-bottom:6px;">
+                  <div style="display:flex; justify-content:space-between; font-size:0.78rem; margin-bottom:2px;">
+                    <span>${name}</span><span style="color:var(--accent);">${pct}%</span>
+                  </div>
+                  <div style="background:rgba(255,255,255,0.07); border-radius:4px; height:6px; overflow:hidden;">
+                    <div style="width:${pct}%; height:100%; background:var(--accent); border-radius:4px;"></div>
+                  </div>
+                </div>`).join('')
+            : '<span style="color:var(--text-muted); font-size:0.8rem;">카테고리 데이터 없음</span>';
+
+        // 요일 분포
+        const dayEntries = Object.entries(tim.day_distribution || {});
+        const maxDay = Math.max(...dayEntries.map(([, v]) => v), 1);
+        const dayHtml = dayEntries.map(([day, cnt]) => `
+            <div style="text-align:center; flex:1;">
+              <div style="font-size:0.65rem; color:var(--text-muted); margin-bottom:3px;">${day}</div>
+              <div style="background:rgba(255,255,255,0.07); border-radius:3px; height:40px; position:relative; overflow:hidden;">
+                <div style="position:absolute; bottom:0; width:100%; height:${Math.round(cnt/maxDay*100)}%; background:var(--accent); border-radius:3px 3px 0 0;"></div>
+              </div>
+              <div style="font-size:0.65rem; margin-top:2px;">${cnt}</div>
+            </div>`).join('');
+
+        // 구조 패턴 태그들
+        const structTags = [
+            ['의문형', sp.question], ['감탄형', sp.exclamation],
+            ['서술형', sp.narrative], ['말줄임', sp.ellipsis], ['인용형', sp.quote]
+        ].filter(([, v]) => v > 0)
+         .map(([name, pct]) => `<span style="background:rgba(120,80,255,0.15); color:var(--accent); border:1px solid rgba(120,80,255,0.3); border-radius:16px; padding:3px 10px; font-size:0.78rem;">${name} ${pct}%</span>`)
+         .join('');
+
+        const fallbackNote = dna._meta?.usedFallback
+            ? `<div style="font-size:0.75rem; color:#fbbf24; margin-bottom:8px;">⚠ 떡상 기준(구독자 대비 50배) 미달 — 상위 10% 영상으로 대체 분석</div>` : '';
+
+        el.innerHTML = `
+      <div class="card">
+        ${fallbackNote}
+        <!-- 통계 헤더 -->
+        <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px;">
+          <div style="flex:1; min-width:100px; text-align:center; background:rgba(46,204,64,0.08); border-radius:10px; padding:12px;">
+            <div style="font-size:1.6rem; font-weight:900; color:#2ecc40;">${dna.viral_count}</div>
+            <div style="font-size:0.72rem; color:var(--text-muted);">떡상 영상</div>
+          </div>
+          <div style="flex:1; min-width:100px; text-align:center; background:rgba(255,255,255,0.04); border-radius:10px; padding:12px;">
+            <div style="font-size:1.6rem; font-weight:900;">${dna.total_count}</div>
+            <div style="font-size:0.72rem; color:var(--text-muted);">전체 영상</div>
+          </div>
+          <div style="flex:1; min-width:100px; text-align:center; background:rgba(255,65,54,0.08); border-radius:10px; padding:12px;">
+            <div style="font-size:1.6rem; font-weight:900; color:#ff4136;">${dna.viral_rate}%</div>
+            <div style="font-size:0.72rem; color:var(--text-muted);">떡상 비율</div>
+          </div>
+          <div style="flex:1; min-width:100px; text-align:center; background:rgba(255,200,0,0.08); border-radius:10px; padding:12px;">
+            <div style="font-size:1.6rem; font-weight:900; color:#ffd700;">${ta.avg_length || 0}자</div>
+            <div style="font-size:0.72rem; color:var(--text-muted);">평균 제목 길이</div>
+          </div>
+        </div>
+
+        <!-- 탭 -->
+        <div class="flex gap-8 mb-20" id="local-dna-tabs" style="background:rgba(255,255,255,0.03); padding:6px; border-radius:12px;">
+          <button class="btn btn-secondary active-tab local-dna-tab-btn" data-tab="title" style="flex:1; font-weight:700;">📝 제목 패턴</button>
+          <button class="btn btn-secondary local-dna-tab-btn" data-tab="timing" style="flex:1; font-weight:700;">⏰ 타이밍</button>
+          <button class="btn btn-secondary local-dna-tab-btn" data-tab="tags" style="flex:1; font-weight:700;">🏷 태그</button>
+          <button class="btn btn-secondary local-dna-tab-btn" data-tab="genre" style="flex:1; font-weight:700;">🎭 장르</button>
+        </div>
+
+        <!-- 제목 패턴 탭 -->
+        <div id="local-tab-title" class="local-dna-tab-content">
+          <div style="margin-bottom:14px;">
+            <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">자주 등장하는 단어 TOP20</div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px;">
+              ${(ta.top_keywords || []).map(w => `<span style="background:rgba(255,200,0,0.12); color:#ffd700; border:1px solid rgba(255,200,0,0.3); border-radius:20px; padding:3px 10px; font-size:0.78rem;">${w}</span>`).join('')}
+            </div>
+          </div>
+          <div style="margin-bottom:14px;">
+            <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">제목 구조 패턴</div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px;">${structTags || '<span style="color:var(--text-muted); font-size:0.8rem;">데이터 없음</span>'}</div>
+          </div>
+          <div>
+            <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">특수문자 사용</div>
+            <div style="display:flex; flex-wrap:wrap; gap:8px;">
+              ${Object.entries(ta.special_chars || {}).filter(([,v])=>v>0).map(([ch, cnt]) =>
+                `<span style="background:rgba(255,255,255,0.06); border-radius:8px; padding:4px 10px; font-size:0.82rem;">${ch} <strong>${cnt}</strong>회</span>`
+              ).join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- 타이밍 탭 -->
+        <div id="local-tab-timing" class="local-dna-tab-content hidden">
+          <div style="margin-bottom:16px;">
+            <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">최적 게시 요일 Top3</div>
+            <div style="display:flex; gap:8px;">
+              ${(tim.best_days || []).map((d, i) => `<span style="background:${i===0?'rgba(46,204,64,0.2)':'rgba(255,255,255,0.06)'}; color:${i===0?'#2ecc40':'inherit'}; border-radius:8px; padding:4px 14px; font-size:0.9rem; font-weight:700;">${d}요일</span>`).join('')}
+            </div>
+          </div>
+          <div style="margin-bottom:16px;">
+            <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">최적 게시 시간대 Top3</div>
+            <div style="display:flex; gap:8px;">
+              ${(tim.best_hours || []).map((h, i) => `<span style="background:${i===0?'rgba(46,204,64,0.2)':'rgba(255,255,255,0.06)'}; color:${i===0?'#2ecc40':'inherit'}; border-radius:8px; padding:4px 14px; font-size:0.9rem; font-weight:700;">${h}시</span>`).join('')}
+            </div>
+          </div>
+          <div>
+            <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">요일별 떡상 영상 수</div>
+            <div style="display:flex; gap:4px; align-items:flex-end; height:70px;">${dayHtml}</div>
+          </div>
+        </div>
+
+        <!-- 태그 탭 -->
+        <div id="local-tab-tags" class="local-dna-tab-content hidden">
+          <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">상위 태그 15개</div>
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            ${(tag.top_tags || []).length > 0
+              ? tag.top_tags.map(t => `<span style="background:rgba(120,80,255,0.15); color:var(--accent); border:1px solid rgba(120,80,255,0.3); border-radius:16px; padding:4px 12px; font-size:0.82rem;">#${t}</span>`).join('')
+              : '<span style="color:var(--text-muted); font-size:0.8rem;">태그 데이터 없음</span>'}
+          </div>
+        </div>
+
+        <!-- 장르 탭 -->
+        <div id="local-tab-genre" class="local-dna-tab-content hidden">
+          <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:12px;">카테고리별 분포</div>
+          ${genreHtml}
+        </div>
+      </div>
+    `;
+
+        // 탭 전환
+        el.querySelectorAll('.local-dna-tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                el.querySelectorAll('.local-dna-tab-btn').forEach(b => b.classList.remove('active-tab'));
+                el.querySelectorAll('.local-dna-tab-content').forEach(c => c.classList.add('hidden'));
+                btn.classList.add('active-tab');
+                el.querySelector(`#local-tab-${btn.dataset.tab}`)?.classList.remove('hidden');
+            });
+        });
+    }
 
     // ─── DNA 결과 렌더링 (4탭) ───────────────────
     function renderDnaResult(el, dna) {

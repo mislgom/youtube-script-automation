@@ -83,6 +83,7 @@ export const api = {
     generateDnaSkeleton: (dna, selectedTitle, category) => request('/dna/skeleton', { method: 'POST', body: { dna, selectedTitle, category } }),
     getDnaCache: (key) => request(`/dna/cache/${key}`),
     buildGroupDna: (dnaResults) => request('/dna/group', { method: 'POST', body: { dnaResults } }),
+    extractLocalDna: (data) => request('/dna/local-dna', { method: 'POST', body: data }),
 
     // Ideas
     getIdeas: (status) => request('/ideas', { params: status ? { status } : {} }),
