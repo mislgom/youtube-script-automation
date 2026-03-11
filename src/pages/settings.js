@@ -12,27 +12,9 @@ export async function renderSettings(container, { api }) {
         <!-- API Keys -->
         <div class="card mb-24">
           <h3 style="margin-bottom:20px; font-weight:900; font-size:1.5rem;">🔑 API 키</h3>
-          <div class="input-group">
-            <label style="font-size:1.1rem; font-weight:800; margin-bottom:8px; display:block;">유튜브 API 키</label>
-            <div class="input-with-btn">
-              <input type="password" id="yt-api-key" placeholder="유튜브 API 키 입력">
-              <button class="btn btn-primary" id="save-yt-key">저장</button>
-            </div>
-          </div>
-          <div class="input-group">
-            <label style="font-size:1.1rem; font-weight:800; margin-bottom:8px; display:block;">Cloud Run URL (Gemini 프록시)</label>
-            <div class="input-with-btn">
-              <input type="text" id="cloud-run-url" placeholder="https://gemini-proxy-xxxxx.us-central1.run.app">
-              <button class="btn btn-primary" id="save-cloud-run-url">저장</button>
-            </div>
-          </div>
-          <div class="input-group">
-            <label style="font-size:1.1rem; font-weight:800; margin-bottom:8px; display:block;">Gemini API 키 / Vertex 토큰</label>
-            <div class="input-with-btn">
-              <input type="password" id="gemini-api-key" placeholder="Gemini API 키 또는 AQ.A... 토큰 입력">
-              <button class="btn btn-primary" id="save-gemini-key">저장</button>
-            </div>
-          </div>
+          <div id="key-yt" class="input-group"></div>
+          <div id="key-cloud-run" class="input-group"></div>
+          <div id="key-gemini" class="input-group"></div>
 
           <!-- Vertex Fields (Hidden by default) -->
           <div id="vertex-fields" style="display:none; margin-top:20px; padding:15px; background:rgba(var(--accent-rgb), 0.05); border:1px solid var(--accent-light); border-radius:12px;">
@@ -47,7 +29,6 @@ export async function renderSettings(container, { api }) {
             </div>
             <button class="btn btn-secondary w-100" id="save-vertex-config">클라우드 설정 저장</button>
           </div>
-          <div id="api-status" style="font-size:1rem; color:var(--text-muted); font-weight:700; margin-top:10px;"></div>
         </div>
 
         <!-- General Settings -->
@@ -116,26 +97,95 @@ export async function renderSettings(container, { api }) {
     </div>
   `;
 
+  // ── 키 필드 렌더 헬퍼 ──────────────────────────────────────
+  // isSet: 저장된 값 있음 / maskedValue: ***xxxx 형태 / isPassword: 입력 타입
+  function renderKeyField({ containerId, label, isSet, maskedValue, placeholder, isPassword = true, onSave, onClear }) {
+    const wrap = document.getElementById(containerId);
+    if (!wrap) return;
+
+    const showDisplay = () => {
+      wrap.innerHTML = `
+        <label style="font-size:1.1rem; font-weight:800; margin-bottom:8px; display:block;">${label}</label>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="flex:1; padding:10px 14px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:8px; font-family:monospace; font-size:0.95rem; color:var(--text-muted);">${maskedValue}</span>
+          <button class="btn btn-secondary" style="white-space:nowrap;" id="${containerId}-edit-btn">✏️ 수정</button>
+          ${onClear ? `<button class="btn btn-secondary" style="white-space:nowrap; color:#ef4444; border-color:#ef4444;" id="${containerId}-clear-btn">삭제</button>` : ''}
+        </div>
+      `;
+      wrap.querySelector(`#${containerId}-edit-btn`).addEventListener('click', showEdit);
+      if (onClear) wrap.querySelector(`#${containerId}-clear-btn`).addEventListener('click', async () => {
+        await onClear(); showDisplay();
+      });
+    };
+
+    const showEdit = () => {
+      wrap.innerHTML = `
+        <label style="font-size:1.1rem; font-weight:800; margin-bottom:8px; display:block;">${label}</label>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <input type="${isPassword ? 'password' : 'text'}" id="${containerId}-input" placeholder="${placeholder}" style="flex:1;">
+          <button class="btn btn-primary" style="white-space:nowrap;" id="${containerId}-save-btn">저장</button>
+          ${isSet ? `<button class="btn btn-secondary" style="white-space:nowrap;" id="${containerId}-cancel-btn">취소</button>` : ''}
+        </div>
+      `;
+      wrap.querySelector(`#${containerId}-save-btn`).addEventListener('click', async () => {
+        const val = wrap.querySelector(`#${containerId}-input`).value.trim();
+        if (!val) { showToast('값을 입력해주세요.', 'warning'); return; }
+        try {
+          await onSave(val);
+          showToast('저장되었습니다.', 'success');
+          renderSettings(container, { api });
+        } catch (e) { showToast(e.message, 'error'); }
+      });
+      if (isSet) {
+        wrap.querySelector(`#${containerId}-cancel-btn`).addEventListener('click', showDisplay);
+      }
+    };
+
+    if (isSet) showDisplay();
+    else showEdit();
+  }
+
   // Load current settings
   try {
     const settings = await api.getSettings();
-    const statusEl = document.getElementById('api-status');
-    const statuses = [];
-    if (settings.youtube_api_key_set) statuses.push('✅ YouTube API 키 설정됨');
-    else statuses.push('❌ YouTube API 키 미설정');
-    if (settings.gemini_api_key_set) statuses.push('✅ Gemini API 키 설정됨');
-    else statuses.push('❌ Gemini API 키 미설정');
-    statusEl.innerHTML = statuses.join(' &nbsp;&nbsp; ');
+
+    renderKeyField({
+      containerId: 'key-yt',
+      label: '유튜브 API 키',
+      isSet: !!settings.youtube_api_key_set,
+      maskedValue: settings.youtube_api_key || '미설정',
+      placeholder: '유튜브 API 키 입력',
+      onSave: (val) => api.updateApiKey('youtube_api_key', val),
+    });
+
+    renderKeyField({
+      containerId: 'key-cloud-run',
+      label: 'Cloud Run URL (Gemini 프록시)',
+      isSet: !!(settings.cloud_run_url),
+      maskedValue: settings.cloud_run_url || '미설정',
+      placeholder: 'https://gemini-proxy-xxxxx.us-central1.run.app',
+      isPassword: false,
+      onSave: (val) => api.updateSettings({ cloud_run_url: val }),
+      onClear: async () => { await api.updateSettings({ cloud_run_url: '' }); showToast('삭제되었습니다.', 'info'); },
+    });
+
+    renderKeyField({
+      containerId: 'key-gemini',
+      label: 'Gemini API 키 / Vertex 토큰',
+      isSet: !!settings.gemini_api_key_set,
+      maskedValue: settings.gemini_api_key || '미설정',
+      placeholder: 'Gemini API 키 또는 AQ.A... 토큰 입력',
+      onSave: async (val) => {
+        await api.updateApiKey('gemini_api_key', val);
+        if (val.startsWith('AQ')) showToast('Vertex AI 토큰 감지. 아래 설정을 완료해주세요.', 'info');
+      },
+    });
 
     document.getElementById('transcript-toggle').checked = settings.transcript_enabled !== 'false';
     document.getElementById('theme-select').value = settings.theme || 'dark';
-
-    // Set Vertex fields
     document.getElementById('google-project-id').value = settings.google_project_id || '';
     document.getElementById('google-location').value = settings.google_location || 'us-central1';
-    document.getElementById('cloud-run-url').value = settings.cloud_run_url || '';
 
-    // Show Vertex fields ONLY IF project ID exists or it's a vertex token
     if (settings.google_project_id || settings.is_gemini_vertex_token) {
       document.getElementById('vertex-fields').style.display = 'block';
     }
@@ -143,51 +193,12 @@ export async function renderSettings(container, { api }) {
     showToast('설정 로드 실패: ' + err.message, 'error');
   }
 
-  // Save YouTube API key
-  document.getElementById('save-yt-key').addEventListener('click', async () => {
-    const val = document.getElementById('yt-api-key').value;
-    if (!val) { showToast('API 키를 입력해주세요.', 'warning'); return; }
-    try {
-      await api.updateApiKey('youtube_api_key', val);
-      showToast('YouTube API 키가 저장되었습니다.', 'success');
-      renderSettings(container, { api });
-    } catch (e) { showToast(e.message, 'error'); }
-  });
-
-  // Save Gemini & Vertex Settings
-  // Save Gemini API key
-  document.getElementById('save-gemini-key').addEventListener('click', async () => {
-    const val = document.getElementById('gemini-api-key').value;
-    if (!val) { showToast('API 키를 입력해주세요.', 'warning'); return; }
-    try {
-      await api.updateApiKey('gemini_api_key', val);
-      showToast('저장되었습니다.', 'success');
-      if (val.startsWith('AQ')) {
-        document.getElementById('vertex-fields').style.display = 'block';
-        showToast('Vertex AI 토큰이 감지되었습니다. 아래 하단 설정을 완료해주세요.', 'info');
-      }
-      renderSettings(container, { api });
-    } catch (e) { showToast(e.message, 'error'); }
-  });
-
-  // Save Cloud Run URL
-  document.getElementById('save-cloud-run-url').addEventListener('click', async () => {
-    const val = document.getElementById('cloud-run-url').value;
-    try {
-      await api.updateSettings({ cloud_run_url: val });
-      showToast('Cloud Run URL이 저장되었습니다.', 'success');
-    } catch (e) { showToast(e.message, 'error'); }
-  });
-
   // Save Vertex Config
   document.getElementById('save-vertex-config').addEventListener('click', async () => {
     const projectId = document.getElementById('google-project-id').value;
     const location = document.getElementById('google-location').value;
     try {
-      await api.updateSettings({
-        google_project_id: projectId,
-        google_location: location,
-      });
+      await api.updateSettings({ google_project_id: projectId, google_location: location });
       showToast('클라우드 구성이 저장되었습니다.', 'success');
       renderSettings(container, { api });
     } catch (e) { showToast(e.message, 'error'); }
