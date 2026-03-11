@@ -254,8 +254,9 @@ export async function renderGaps(container, { api }) {
       const result = await api.batchClassify();
 
       if (result.classified === 0) {
-        subClassifyStatus.textContent = result.message || '미분류 영상이 없습니다.';
-        showToast('미분류 영상이 없습니다.', 'info');
+        const hasRemaining = (result.remaining ?? currentUnclassified) > 0;
+        subClassifyStatus.textContent = result.message || (hasRemaining ? 'AI 응답 매칭 실패. 다시 시도해주세요.' : '미분류 영상이 없습니다.');
+        showToast(hasRemaining ? 'AI 응답 매칭 실패. 다시 시도해주세요.' : '미분류 영상이 없습니다.', hasRemaining ? 'warning' : 'info');
       } else {
         const listHtml = (result.results || [])
           .map(r => `<div style="padding:2px 0; font-size:0.78rem;"><span style="color:var(--text-muted);">${r.title}</span> <span style="color:var(--accent); font-weight:700;">→ ${r.sub_category}</span></div>`)
@@ -265,8 +266,8 @@ export async function renderGaps(container, { api }) {
           <div style="max-height:120px; overflow-y:auto; background:rgba(255,255,255,0.03); border-radius:6px; padding:6px 8px;">${listHtml}</div>
         `;
         showToast(result.message, 'success');
-        await refreshSubCategoryProgress();
       }
+      await refreshSubCategoryProgress();
     } catch (err) {
       subClassifyStatus.textContent = `❌ 오류: ${err.message}`;
       showToast('분류 실패: ' + err.message, 'error');
