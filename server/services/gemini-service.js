@@ -76,7 +76,7 @@ export async function callGemini(prompt, options = {}) {
     let timer;
     try {
         const timeoutPromise = new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error('AI 분석 시간 초과 (90초). 모델이 응답하지 않거나 네트워크 상태가 불안정합니다.')), 90000);
+            timer = setTimeout(() => reject(new Error('AI 분석 시간 초과 (90초). 모델이 응답하지 않거나 네트워크 상태가 불안정합니다.')), options.timeout || 90000);
         });
 
         const fetchPromise = (async () => {
@@ -631,8 +631,8 @@ export async function deepSuggestTopics(catX, catY, groupX, groupY, existingVide
             : `잠재적 수요 영역 (미개척)`;
 
     const existingContext = existingVideos.length > 0
-        ? `\n[기존 인기 영상 패턴 분석]\n아래는 현재 시청자들이 열광하고 있는 이 주제의 실제 영상들입니다. AI는 이들의 성공 공식을 분석하되, **내용이 100% 겹치지 않는 '새로운 한 끝(Niche)'**을 찾아야 합니다:\n${existingVideos.slice(0, 10).map(v =>
-            `- "${v.title}" (조회수: ${v.view_count.toLocaleString()})\n  ㄴ 패턴 요약: ${v.transcript_summary || v.description?.substring(0, 150) || '정보 없음'}`
+        ? `\n[기존 영상 제목 목록 — 이 제목들과 겹치지 않는 새로운 주제를 추천하세요]\n${existingVideos.slice(0, 500).map(v =>
+            `- "${v.title}" (조회수: ${(v.view_count || 0).toLocaleString()})`
         ).join('\n')}`
         : '\n현재 이 조합에 해당하는 영상이 적습니다. 시청자 수요가 검증되지 않았으므로 보수적인 관점에서 기획안을 제시하세요.';
 
@@ -692,7 +692,20 @@ ${yadamBoldInstruction}
 
     // DNA 접목 (3단계 적용)
     if (dnaSummary) {
-        prompt = attachDNAContextToPrompt(prompt, dnaSummary);
+        const spikeTitles = dnaSummary._spike_titles;
+        const cleanDna = { ...dnaSummary };
+        delete cleanDna._spike_titles;
+
+        prompt = attachDNAContextToPrompt(prompt, cleanDna);
+
+        if (spikeTitles && spikeTitles.length > 0) {
+            prompt += '\n\n[떡상 영상 제목 벤치마킹]\n';
+            prompt += '아래는 실제로 떡상한 영상들의 제목입니다. ';
+            prompt += '이 제목들의 작성 패턴(단어 선택, 구조, 감정 유발 방식, 길이)을 분석하여 ';
+            prompt += '추천하는 각 주제의 title을 SEO에 최적화된 형태로 작성하세요.\n';
+            prompt += '단순히 주제를 설명하는 제목이 아니라, 아래 떡상 제목들처럼 클릭을 유도하는 제목이어야 합니다.\n\n';
+            prompt += spikeTitles.map((t, i) => `${i + 1}. ${t}`).join('\n');
+        }
     }
 
     // 포화도 현황 삽입

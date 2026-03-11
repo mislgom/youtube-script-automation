@@ -10,15 +10,16 @@ import { callGemini } from './gemini-service.js';
 export async function extractAdvancedDNA(videos, category = '야담') {
     if (!videos || videos.length === 0) return null;
 
-    // 분석 텍스트 조합 (제목 + 설명 + 자막 요약)
+    // 분석 텍스트 조합 (전체 자막 원문 우선)
     const corpus = videos.slice(0, 20).map((v, i) => {
-        const text = [v.title, v.description, v.transcript_summary]
-            .filter(Boolean).join(' ').substring(0, 500);
-        return `[영상${i + 1}] 제목: "${v.title}" | 조회수: ${(v.view_count || 0).toLocaleString()} | 내용: ${text}`;
-    }).join('\n\n');
+        const transcript = v.transcript_raw || v.transcript_summary || '';
+        const content = transcript || [v.title, v.description].filter(Boolean).join(' ');
+        return `[영상${i + 1}] 제목: "${v.title}" | 조회수: ${(v.view_count || 0).toLocaleString()} | 전체 자막 원문:\n${content}`;
+    }).join('\n\n---\n\n');
 
     const prompt = `당신은 유튜브 영상 DNA 분석 전문가입니다.
-아래 떡상 영상들(카테고리: ${category})을 분석하여 **공통 성공 패턴(DNA)**을 추출하세요.
+아래 떡상 영상들(카테고리: ${category})의 전체 자막 원문을 깊이 분석하여 **공통 성공 패턴(DNA)**을 추출하세요.
+자막의 도입부, 전개 방식, 감정 고조 지점, 반전, 마무리 구조를 면밀히 분석하세요.
 
 [분석 대상 영상 목록]
 ${corpus}
@@ -69,7 +70,7 @@ ${corpus}
 }`;
 
     try {
-        const raw = await callGemini(prompt, { jsonMode: true });
+        const raw = await callGemini(prompt, { jsonMode: true, timeout: 180000 });
         if (!raw || typeof raw !== 'string') return null;
         const jsonStr = raw.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(jsonStr);
@@ -122,7 +123,7 @@ export async function extractGoldenKeywords(dna) {
 }`;
 
     try {
-        const raw = await callGemini(prompt, { useGoogleSearch: true });
+        const raw = await callGemini(prompt, { jsonMode: true });
         if (!raw || typeof raw !== 'string') return [];
         const jsonStr = raw.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(jsonStr);

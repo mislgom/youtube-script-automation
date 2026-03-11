@@ -160,6 +160,19 @@ db.exec(`CREATE TABLE IF NOT EXISTS video_sub_categories (
   FOREIGN KEY(sub_category_id) REFERENCES sub_categories(id)
 )`);
 
+db.exec(`DROP TABLE IF EXISTS video_dna`);
+db.exec(`CREATE TABLE IF NOT EXISTS video_dna (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  video_ids TEXT NOT NULL,
+  video_titles TEXT NOT NULL,
+  channel_names TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  dna_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_video_dna_category ON video_dna(category)`);
+console.log('✅ video_dna 테이블 초기화 완료');
+
 // ── Default data ─────────────────────────────────────────────────────────────
 
 const stmtSettings = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');

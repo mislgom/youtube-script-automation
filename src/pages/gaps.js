@@ -892,6 +892,12 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
   // localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState)); // Handled by updateStoredState
 
   try {
+    // === 신규 흐름: 떡상 영상 선별 → DNA 추출 → 주제 추천 ===
+    await showSpikeVideoModal(catX, catY, isYadam, meta, area, api);
+    return;
+    // === 신규 흐름 끝 ===
+
+    /* 기존 로직 시작 - 신규 흐름으로 교체됨
     // ── [주석 처리] 로컬 DNA 단독 경로 (이전 버전) ───────────────────
     // const localResult = await api.extractLocalDna({ category: catX });
     // const dna = localResult.dna;
@@ -1033,6 +1039,7 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
       deepHtml: html,
       deepParams: { catX, catY, groupX, groupY, existingCount, isYadam, meta }
     });
+    기존 로직 끝 - 신규 흐름으로 교체됨 */
 
   } catch (err) {
     console.error('[performDeepAnalysis] Error:', err);
@@ -2722,3 +2729,673 @@ window.downloadThemeSkeleton = (btn, title) => {
   URL.revokeObjectURL(url);
   showToast('기획안이 TXT 파일로 다운로드되었습니다.', 'success');
 };
+
+// ── 떡상 영상 선택 모달 (1차) ─────────────────────────────────────────────────
+// ── DNA 콘텐츠 렌더링 헬퍼 ──────────────────────────────────────────────────
+function renderDnaContent(dnaObj) {
+  if (!dnaObj) return '<p style="color:var(--text-secondary);">데이터 없음</p>';
+  if (typeof dnaObj === 'string') return '<p>' + dnaObj + '</p>';
+
+  let html = '';
+  for (const [key, value] of Object.entries(dnaObj)) {
+    const label = key.replace(/_/g, ' ');
+    if (typeof value === 'string' || typeof value === 'number') {
+      html += '<div class="dna-field">'
+            + '<span class="dna-field-key">' + label + '</span>'
+            + '<span class="dna-field-value">' + value + '</span>'
+            + '</div>';
+    } else if (Array.isArray(value)) {
+      html += '<div class="dna-field">'
+            + '<span class="dna-field-key">' + label + '</span>'
+            + '<ul class="dna-field-list">'
+            + value.map(item => {
+                if (typeof item === 'object' && item !== null) {
+                  return '<li>' + Object.entries(item).map(([k, v]) => k.replace(/_/g, ' ') + ': ' + v).join(' | ') + '</li>';
+                }
+                return '<li>' + item + '</li>';
+              }).join('')
+            + '</ul>'
+            + '</div>';
+    } else if (typeof value === 'object' && value !== null) {
+      html += '<div class="dna-field">'
+            + '<span class="dna-field-key">' + label + '</span>'
+            + '<div class="dna-field-value">' + renderDnaContent(value) + '</div>'
+            + '</div>';
+    }
+  }
+  return html;
+}
+
+// ── DNA 결과 2차 모달 ─────────────────────────────────────────────────────────
+function showDnaResultModal(dnaResponse, catX, catY, isYadam, meta, deepArea, api, spikeVideos) {
+  const { dna, sourceVideos = [], isNewExtraction } = dnaResponse;
+  const container = deepArea.querySelector('.chart-container');
+  if (!container) return;
+
+  function fmtN(n) { return n ? Number(n).toLocaleString('ko-KR') : '0'; }
+
+  const sourceVideosHtml = sourceVideos.map(v => `
+    <div class="dna-source-item">
+      <div class="dna-source-title">
+        <a href="https://www.youtube.com/watch?v=${v.videoId}" target="_blank" rel="noopener noreferrer">${v.title}</a>
+        ${isNewExtraction ? '<span class="dna-new-badge">신규 추출</span>' : '<span class="dna-cached-badge">저장된 DNA</span>'}
+      </div>
+      <div class="dna-source-meta">
+        ${v.channelName} | 조회수 ${fmtN(v.viewCount)}회 | 구독자 ${fmtN(v.subscriberCount)}명 | 자막 ${fmtN(v.transcriptLength)}자
+      </div>
+    </div>
+  `).join('');
+
+  const dnaCards = [
+    { icon: '🎣', title: '훅 DNA — 도입부 전략', key: 'hook_dna' },
+    { icon: '🏗️', title: '구조 DNA — 이야기 뼈대', key: 'structure_dna' },
+    { icon: '💓', title: '감정 DNA — 감정 흐름', key: 'emotion_dna' },
+    { icon: '🫁', title: '호흡 DNA — 문장 패턴', key: 'pace_dna' },
+    { icon: '🏷️', title: '제목 DNA — 클릭 유도 패턴', key: 'title_dna' },
+  ].map(card => `
+    <div class="dna-card">
+      <div class="dna-card-header">
+        <span class="dna-card-icon">${card.icon}</span>
+        <span class="dna-card-title">${card.title}</span>
+      </div>
+      <div class="dna-card-body">${renderDnaContent(dna[card.key])}</div>
+    </div>
+  `).join('');
+
+  container.innerHTML = `
+    <div class="dna-result-container">
+      <div class="dna-result-header">
+        <h3>🧬 DNA 분석 결과</h3>
+        <p class="dna-result-subtitle">
+          ${sourceVideos.length}개 영상의 성공 DNA를 추출했습니다${isNewExtraction ? '' : ' (저장된 DNA 사용)'}
+        </p>
+      </div>
+
+      <div class="dna-source-videos">
+        <h4 class="dna-section-title">📌 분석 대상 영상</h4>
+        ${sourceVideosHtml}
+      </div>
+
+      <div class="dna-cards">${dnaCards}</div>
+
+      <div class="dna-result-actions">
+        <button class="spike-btn-close" id="dna-save-close-btn">DNA만 저장하고 닫기</button>
+        <button class="spike-btn-analyze" id="dna-suggest-btn">✨ 주제 추천 받기</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('dna-save-close-btn').addEventListener('click', () => {
+    window.__activeDeepAnalysis = null;
+    deepArea.querySelector('.chart-container')?.remove();
+  });
+
+  const doSuggest = async () => {
+    const suggestBtn = document.getElementById('dna-suggest-btn');
+    if (suggestBtn) { suggestBtn.disabled = true; suggestBtn.textContent = '✨ 주제 분석 중... (약 30~60초 소요)'; }
+
+    const actionsArea = container.querySelector('.dna-result-actions');
+    if (actionsArea) {
+      actionsArea.innerHTML = `
+        <div class="suggest-loading" style="text-align:center; padding:24px 0; width:100%;">
+          <div class="spike-loading-spinner"></div>
+          <p style="margin-top:12px; font-size:0.9rem; font-weight:600;">
+            ✨ DNA를 기반으로 틈새 주제를 발굴하고 있습니다...
+          </p>
+          <p style="margin-top:6px; font-size:0.8rem; color:var(--text-secondary);">
+            기존 영상 제목과 겹치지 않는 주제를 찾고 있습니다 (약 30~60초)
+          </p>
+        </div>
+      `;
+    }
+
+    const spikeVideoTitles = (spikeVideos || []).map(v => v.title);
+
+    try {
+      const suggestResponse = await api.suggestTopics({
+        catX, catY, isYadam, meta,
+        dna: dnaResponse.dna,
+        spikeVideoTitles
+      });
+      showTopicResultModal(suggestResponse, dnaResponse, catX, catY, isYadam, meta, deepArea, api, spikeVideos);
+    } catch (err) {
+      if (actionsArea) {
+        actionsArea.innerHTML = `
+          <div style="text-align:center; padding:24px 0; width:100%;">
+            <div style="font-size:2rem; margin-bottom:12px;">⚠️</div>
+            <p style="font-size:0.95rem; font-weight:700; margin-bottom:8px;">주제 추천에 실패했습니다</p>
+            <p style="color:var(--text-secondary); font-size:0.85rem;">${err.message}</p>
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
+              <button class="spike-btn-close"
+                onclick="window.__activeDeepAnalysis = null; this.closest('.chart-container').remove()">닫기</button>
+              <button class="spike-btn-analyze" id="suggest-retry-btn">다시 시도</button>
+            </div>
+          </div>
+        `;
+        document.getElementById('suggest-retry-btn').addEventListener('click', doSuggest);
+      }
+    }
+  };
+
+  document.getElementById('dna-suggest-btn').addEventListener('click', doSuggest);
+}
+
+// ── 3차 모달: 주제 추천 결과 ─────────────────────────────────────────────────
+function showTopicResultModal(suggestResponse, dnaResponse, catX, catY, isYadam, meta, deepArea, api, spikeVideos) {
+  const { suggestions = [], existingVideoCount = 0 } = suggestResponse;
+  const container = deepArea.querySelector('.chart-container');
+  if (!container) return;
+
+  function fmtN(n) { return n ? Number(n).toLocaleString('ko-KR') : '0'; }
+
+  const suggestionItemsHtml = suggestions.map((s, i) => `
+    <div class="topic-suggestion-item" data-index="${i}" data-title="${(s.title || '').replace(/"/g, '&quot;')}"
+         data-yadam="${isYadam ? 'true' : 'false'}">
+      <div class="topic-suggestion-rank">TOP ${i + 1}</div>
+      <div class="topic-suggestion-body">
+        <div class="topic-suggestion-title">${s.title || ''}</div>
+        <div class="topic-suggestion-gap">
+          <span class="topic-gap-label">차별화</span>
+          <div class="topic-gap-bar">
+            <div class="topic-gap-fill" style="width:${s.gap_rate || 0}%"></div>
+          </div>
+          <span class="topic-gap-value">${s.gap_rate || 0}%</span>
+        </div>
+        <div class="topic-suggestion-keywords">
+          ${(s.keywords || []).map(kw => `<span class="topic-keyword-tag">#${kw}</span>`).join('')}
+        </div>
+        <div class="topic-suggestion-reason">${s.reason || ''}</div>
+      </div>
+      <div class="topic-suggestion-expand-icon">▶</div>
+      <div class="topic-expand-area" style="display:none;"></div>
+    </div>
+  `).join('');
+
+  const sourceVideosHtml = (dnaResponse.sourceVideos || []).map(v =>
+    `<a href="https://www.youtube.com/watch?v=${v.videoId}" target="_blank" rel="noopener noreferrer" class="topic-evidence-link">${v.title}</a>`
+  ).join('');
+
+  const spikeEvidenceHtml = (spikeVideos || []).map(v =>
+    `<span class="topic-evidence-spike">${v.title} (${fmtN(v.viewCount)}회)</span>`
+  ).join('');
+
+  container.innerHTML = `
+    <div class="topic-result-container">
+      <div class="topic-result-header">
+        <div class="topic-result-title-row">
+          <h3>✨ 추천 주제 TOP ${suggestions.length}</h3>
+          <button class="spike-btn-close topic-close-btn">닫기</button>
+        </div>
+        <p class="topic-result-subtitle">
+          기존 ${fmtN(existingVideoCount)}개 영상과 겹치지 않는 틈새 주제 | DNA 기반 SEO 최적화 제목
+        </p>
+      </div>
+
+      <div class="topic-suggestion-list" id="topic-suggestion-list">
+        ${suggestionItemsHtml}
+      </div>
+
+      <div class="topic-evidence-section">
+        <h4 class="dna-section-title">📌 분석 근거</h4>
+        <div class="topic-evidence-group">
+          <span class="topic-evidence-label">DNA 추출 영상:</span>
+          ${sourceVideosHtml}
+        </div>
+        <div class="topic-evidence-group">
+          <span class="topic-evidence-label">떡상 영상 벤치마크:</span>
+          <div class="topic-evidence-spike-list">${spikeEvidenceHtml}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  container.querySelector('.topic-close-btn').addEventListener('click', () => {
+    window.__activeDeepAnalysis = null;
+    deepArea.querySelector('.chart-container')?.remove();
+  });
+
+  attachNewSuggestionEvents(container, api, dnaResponse, catX, isYadam);
+}
+
+// ── 3차 모달 이벤트 바인딩 ────────────────────────────────────────────────────
+function attachNewSuggestionEvents(container, api, dnaResponse, catX, isYadam) {
+  const dna = dnaResponse.dna;
+  const category = isYadam ? '야담' : catX;
+
+  container.querySelectorAll('.topic-suggestion-item').forEach(item => {
+    // 카드 클릭 이벤트 (헤더 영역만 — expand-area 내부 클릭은 전파 차단)
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.topic-expand-area')) return;
+
+      const expandArea = item.querySelector('.topic-expand-area');
+      const expandIcon = item.querySelector('.topic-suggestion-expand-icon');
+      const isOpen = expandArea.style.display !== 'none';
+
+      // 다른 카드 접기
+      container.querySelectorAll('.topic-suggestion-item').forEach(other => {
+        if (other !== item) {
+          other.querySelector('.topic-expand-area').style.display = 'none';
+          other.querySelector('.topic-suggestion-expand-icon').textContent = '▶';
+          other.classList.remove('expanded');
+        }
+      });
+
+      if (isOpen) {
+        expandArea.style.display = 'none';
+        expandIcon.textContent = '▶';
+        item.classList.remove('expanded');
+        return;
+      }
+
+      expandArea.style.display = 'block';
+      expandIcon.textContent = '▼';
+      item.classList.add('expanded');
+
+      // 이미 로드된 경우 토글만
+      if (expandArea.dataset.loaded === 'true') return;
+
+      const topicTitle = item.dataset.title;
+
+      expandArea.innerHTML = `
+        <div class="topic-expand-content">
+          <div class="topic-dna-summary">
+            🧬 저장된 DNA를 활용합니다 (추가 AI 호출 없음)
+          </div>
+          <button class="topic-title-gen-btn">🎯 후킹 제목 10종 생성하기</button>
+          <div class="topic-title-result"></div>
+        </div>
+      `;
+
+      const titleGenBtn = expandArea.querySelector('.topic-title-gen-btn');
+      const titleResult = expandArea.querySelector('.topic-title-result');
+
+      const doFetchTitles = async () => {
+        titleGenBtn.disabled = true;
+        titleGenBtn.textContent = '⏳ 제목 생성 중...';
+        titleResult.innerHTML = `<div style="padding:16px; text-align:center;"><div class="spike-loading-spinner" style="width:24px;height:24px;"></div></div>`;
+
+        try {
+          const kwRes = await api.extractGoldenKeywords(dna);
+          const tRes = await api.recommendDnaTitles(dna, kwRes, category, topicTitle);
+          const titles = tRes.titles || [];
+
+          const itemIdx = item.dataset.index;
+
+          titleResult.innerHTML = `
+            <div class="topic-titles-list">
+              <p class="topic-titles-guide">제목을 선택한 후 대본 뼈대를 생성할 수 있습니다</p>
+              ${titles.map(t => `
+                <label class="topic-title-radio-item">
+                  <input type="radio" name="topic-title-${itemIdx}" value="${(t.title || '').replace(/"/g, '&quot;')}">
+                  <div class="topic-title-radio-content">
+                    <span class="topic-title-text">${t.title || ''}</span>
+                    <span class="topic-title-score">CTR ${t.ctr_score || 0}점</span>
+                    <span class="topic-title-reason">${t.reason || ''}</span>
+                  </div>
+                </label>
+              `).join('')}
+              <div style="display:flex; gap:8px; margin-top:10px;">
+                <button class="topic-skeleton-btn" disabled>📝 대본 뼈대 생성</button>
+                <button class="topic-titles-refresh-btn">🔄 다시 추천</button>
+              </div>
+            </div>
+          `;
+
+          const skelBtn = titleResult.querySelector('.topic-skeleton-btn');
+          const refreshBtn = titleResult.querySelector('.topic-titles-refresh-btn');
+
+          // 라디오 선택 이벤트
+          titleResult.querySelectorAll(`input[name="topic-title-${itemIdx}"]`).forEach(radio => {
+            radio.addEventListener('change', () => {
+              titleResult.querySelectorAll('.topic-title-radio-item').forEach(lbl => lbl.classList.remove('selected'));
+              radio.closest('.topic-title-radio-item')?.classList.add('selected');
+              skelBtn.disabled = false;
+            });
+          });
+
+          // 다시 추천
+          refreshBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            titleGenBtn.textContent = '🎯 후킹 제목 10종 생성하기';
+            doFetchTitles();
+          });
+
+          // 대본 뼈대 생성
+          skelBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const checkedRadio = titleResult.querySelector(`input[name="topic-title-${itemIdx}"]:checked`);
+            if (!checkedRadio) return;
+            const selectedTitle = checkedRadio.value;
+
+            skelBtn.disabled = true;
+            skelBtn.textContent = '⏳ 대본 생성 중...';
+
+            const doGenSkeleton = async () => {
+              try {
+                const skelRes = await api.generateDnaSkeleton(dna, selectedTitle, category);
+                const skel = skelRes.skeleton;
+
+                const existingSkelResult = titleResult.querySelector('.topic-skeleton-result');
+                if (existingSkelResult) existingSkelResult.remove();
+
+                const skelDiv = document.createElement('div');
+                skelDiv.className = 'topic-skeleton-result';
+                skelDiv.innerHTML = `
+                  <h4>📝 대본 뼈대</h4>
+                  <div class="topic-skeleton-title">제목: ${skel.title || selectedTitle}</div>
+                  <div class="topic-skeleton-sections">
+                    ${(skel.sections || []).map(sec => `
+                      <div class="topic-skeleton-section">
+                        <div class="topic-skeleton-section-name">${sec.name || ''}</div>
+                        ${sec.hook_sentence ? `<div class="topic-skeleton-hook">🎣 ${sec.hook_sentence}</div>` : ''}
+                        <div class="topic-skeleton-goal">${sec.goal || ''}</div>
+                      </div>
+                    `).join('')}
+                  </div>
+                  ${skel.climax_note ? `<div class="topic-skeleton-climax">🔥 클라이맥스: ${skel.climax_note}</div>` : ''}
+                  ${skel.ending_sentence ? `<div class="topic-skeleton-ending">🎬 엔딩: ${skel.ending_sentence}</div>` : ''}
+                  <div class="topic-skeleton-actions">
+                    <button class="topic-skeleton-refresh-btn">🔄 다시 만들기</button>
+                    <button class="topic-skeleton-download-btn">📥 TXT 다운로드</button>
+                  </div>
+                `;
+
+                skelDiv.querySelector('.topic-skeleton-refresh-btn').addEventListener('click', (e) => {
+                  e.stopPropagation();
+                  skelBtn.disabled = true;
+                  skelBtn.textContent = '⏳ 대본 생성 중...';
+                  doGenSkeleton();
+                });
+
+                skelDiv.querySelector('.topic-skeleton-download-btn').addEventListener('click', (e) => {
+                  e.stopPropagation();
+                  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+                  const shortTitle = selectedTitle.slice(0, 20).replace(/[\\/:*?"<>|]/g, '_');
+                  let text = `[대본 뼈대]\n제목: ${skel.title || selectedTitle}\n\n`;
+                  (skel.sections || []).forEach(sec => {
+                    text += `[${sec.name}]\n`;
+                    if (sec.hook_sentence) text += `훅: ${sec.hook_sentence}\n`;
+                    text += `목표: ${sec.goal}\n\n`;
+                  });
+                  if (skel.climax_note) text += `클라이맥스: ${skel.climax_note}\n`;
+                  if (skel.ending_sentence) text += `엔딩: ${skel.ending_sentence}\n`;
+                  const blob = new Blob([text], { type: 'text/plain' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url; a.download = `대본뼈대_${shortTitle}_${today}.txt`;
+                  document.body.appendChild(a); a.click();
+                  document.body.removeChild(a); URL.revokeObjectURL(url);
+                });
+
+                titleResult.appendChild(skelDiv);
+                skelBtn.disabled = false;
+                skelBtn.textContent = '📝 대본 뼈대 생성';
+                skelDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              } catch (err) {
+                skelBtn.disabled = false;
+                skelBtn.textContent = '📝 대본 뼈대 생성';
+                const existingSkelResult = titleResult.querySelector('.topic-skeleton-result');
+                if (existingSkelResult) existingSkelResult.remove();
+                const errDiv = document.createElement('div');
+                errDiv.className = 'topic-skeleton-result';
+                errDiv.innerHTML = `<p style="color:var(--danger); font-size:0.85rem;">❌ 실패: ${err.message}</p>
+                  <button class="topic-skeleton-refresh-btn" style="margin-top:8px;">다시 시도</button>`;
+                errDiv.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); doGenSkeleton(); });
+                titleResult.appendChild(errDiv);
+              }
+            };
+
+            doGenSkeleton();
+          });
+
+          titleGenBtn.textContent = '✅ 제목 추천 완료';
+          expandArea.dataset.loaded = 'true';
+
+        } catch (err) {
+          titleGenBtn.disabled = false;
+          titleGenBtn.textContent = '🎯 후킹 제목 10종 생성하기';
+          titleResult.innerHTML = `
+            <div style="padding:12px; color:var(--danger); font-size:0.85rem;">
+              ❌ 실패: ${err.message}
+              <button class="topic-title-gen-btn" style="display:block; margin-top:8px;">다시 시도</button>
+            </div>
+          `;
+          titleResult.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); doFetchTitles(); });
+        }
+      };
+
+      titleGenBtn.addEventListener('click', (e) => { e.stopPropagation(); doFetchTitles(); });
+    });
+  });
+}
+
+// ── 1차 떡상 영상 선택 모달 ──────────────────────────────────────────────────
+export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, api) {
+  if (!deepArea) return;
+
+  function fmt(n) {
+    if (!n) return '0';
+    return Number(n).toLocaleString('ko-KR');
+  }
+
+  // 로딩 UI
+  deepArea.innerHTML = `
+    <div class="chart-container mb-24 animation-fade-in" style="border:2px solid var(--accent); background:var(--accent-glow); padding:32px; text-align:center;">
+      <div class="spinner" style="margin: 0 auto 16px;"></div>
+      <div style="color:var(--accent); font-weight:700; font-size:1rem;">
+        📊 [${catY} × ${catX}] 떡상 영상을 분석하고 있습니다...
+      </div>
+    </div>
+  `;
+
+  try {
+    const result = await api.getSpikeVideos({ catX, catY, isYadam, meta });
+    const { spikeVideos = [], totalVideosInCategory = 0, totalSpikeVideos = 0 } = result;
+
+    if (spikeVideos.length === 0) {
+      deepArea.innerHTML = `
+        <div class="chart-container mb-24 animation-fade-in">
+          <div style="padding:24px; text-align:center;">
+            <div style="font-size:2rem; margin-bottom:12px;">📭</div>
+            <h3 style="font-size:1.1rem; font-weight:700; margin-bottom:8px;">떡상 영상을 찾지 못했습니다</h3>
+            <p style="color:var(--text-secondary); font-size:0.9rem;">
+              [${catY} × ${catX}] 카테고리에서 떡상 조건(구독자 대비 조회수 + 채널 평균 3배 이상)을 충족하는 영상이 없습니다.
+            </p>
+            <button onclick="window.__activeDeepAnalysis = null; this.closest('.chart-container').remove()"
+              style="margin-top:16px; padding:8px 20px; border-radius:10px; border:1px solid var(--border); background:var(--bg-secondary); cursor:pointer; color:var(--text-primary);">
+              닫기
+            </button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const videoItemsHtml = spikeVideos.map((v, idx) => {
+      const noTranscript = !v.hasTranscript || v.transcriptLength === 0;
+      return `
+        <div class="spike-video-item" data-video-id="${v.id}" data-transcript-length="${v.transcriptLength}">
+          <label class="spike-video-checkbox-area">
+            <input type="checkbox" class="spike-video-checkbox" ${noTranscript ? 'disabled' : ''}>
+            <span class="spike-video-rank">#${idx + 1}</span>
+          </label>
+          <div class="spike-video-info">
+            <div class="spike-video-title-row">
+              <a href="https://www.youtube.com/watch?v=${v.videoId}" target="_blank" class="spike-video-title-link">${v.title}</a>
+              ${v.hasDna ? '<span class="spike-dna-badge">DNA 추출 완료</span>' : ''}
+              ${noTranscript ? '<span class="spike-no-transcript">자막 없음</span>' : ''}
+            </div>
+            <div class="spike-video-meta">
+              <span class="spike-meta-channel">${v.channelName}</span>
+              <span class="spike-meta-divider">|</span>
+              <span>조회수 ${fmt(v.viewCount)}회</span>
+              <span class="spike-meta-divider">|</span>
+              <span>구독자 ${fmt(v.subscriberCount)}명</span>
+            </div>
+            <div class="spike-video-stats">
+              <span class="spike-stat spike-stat-ratio">떡상비율 <strong>${v.spikeRatio}배</strong></span>
+              <span class="spike-stat spike-stat-avg">채널평균대비 <strong>${v.channelAvgMultiple}배</strong></span>
+              <span class="spike-stat spike-stat-transcript">자막 <strong>${fmt(v.transcriptLength)}자</strong></span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    deepArea.innerHTML = `
+      <div class="chart-container spike-modal-container mb-24 animation-fade-in">
+        <div class="spike-modal-header">
+          <h3>📊 [${catY} × ${catX}] 떡상 영상 TOP ${spikeVideos.length}</h3>
+          <p class="spike-modal-subtitle">
+            전체 ${fmt(totalVideosInCategory)}개 영상 중 떡상 조건 충족: ${fmt(totalSpikeVideos)}개 → 상위 ${spikeVideos.length}개 표시
+          </p>
+        </div>
+
+        <div class="spike-modal-guide">
+          <span class="spike-modal-guide-icon">💡</span>
+          <span>DNA 분석할 영상을 최대 2개 선택하세요. 영상 제목을 클릭하면 YouTube에서 확인할 수 있습니다.</span>
+        </div>
+
+        <div class="spike-modal-char-count" id="spike-char-counter">
+          선택된 자막: 0자 / 50,000자
+        </div>
+
+        <div class="spike-video-list" id="spike-video-list">
+          ${videoItemsHtml}
+        </div>
+
+        <div class="spike-modal-actions">
+          <button class="spike-btn-close" onclick="window.__activeDeepAnalysis = null; this.closest('.chart-container').remove()">닫기</button>
+          <button class="spike-btn-analyze" id="spike-analyze-btn" disabled>
+            DNA 분석 시작 (0개 선택)
+          </button>
+        </div>
+      </div>
+    `;
+
+    // ── 체크박스 이벤트 바인딩 ──────────────────────────────────────────
+    const list = deepArea.querySelector('#spike-video-list');
+    const analyzeBtn = deepArea.querySelector('#spike-analyze-btn');
+    const charCounter = deepArea.querySelector('#spike-char-counter');
+
+    list.addEventListener('change', (e) => {
+      if (!e.target.classList.contains('spike-video-checkbox')) return;
+
+      const allCheckboxes = list.querySelectorAll('.spike-video-checkbox:not([disabled])');
+      const checked = list.querySelectorAll('.spike-video-checkbox:checked');
+      const checkedCount = checked.length;
+
+      // 자막 합산
+      let totalChars = 0;
+      checked.forEach(cb => {
+        const item = cb.closest('.spike-video-item');
+        totalChars += parseInt(item.dataset.transcriptLength || 0, 10);
+      });
+
+      // 50,000자 초과 & 2개 이상 선택 시 마지막 체크 해제
+      if (totalChars > 50000 && checkedCount >= 2) {
+        e.target.checked = false;
+        alert('자막이 50,000자를 초과하여 1개만 선택 가능합니다.');
+        // 재계산
+        const rechk = list.querySelectorAll('.spike-video-checkbox:checked');
+        totalChars = 0;
+        rechk.forEach(cb => {
+          const item = cb.closest('.spike-video-item');
+          totalChars += parseInt(item.dataset.transcriptLength || 0, 10);
+        });
+        charCounter.textContent = `선택된 자막: ${fmt(totalChars)}자 / 50,000자`;
+        charCounter.classList.toggle('over-limit', totalChars > 50000);
+        return;
+      }
+
+      charCounter.textContent = `선택된 자막: ${fmt(totalChars)}자 / 50,000자`;
+      charCounter.classList.toggle('over-limit', totalChars > 50000);
+
+      // 선택 항목 스타일
+      list.querySelectorAll('.spike-video-item').forEach(item => {
+        const cb = item.querySelector('.spike-video-checkbox');
+        if (cb && cb.checked) {
+          item.classList.add('selected');
+        } else {
+          item.classList.remove('selected');
+        }
+      });
+
+      // 2개 선택 시 나머지 disabled
+      const finalChecked = list.querySelectorAll('.spike-video-checkbox:checked');
+      const finalCount = finalChecked.length;
+      allCheckboxes.forEach(cb => {
+        if (!cb.checked) {
+          cb.disabled = finalCount >= 2;
+          cb.closest('.spike-video-item').classList.toggle('disabled-item', finalCount >= 2);
+        }
+      });
+
+      // 분석 버튼 상태
+      analyzeBtn.disabled = finalCount === 0;
+      analyzeBtn.textContent = `DNA 분석 시작 (${finalCount}개 선택)`;
+    });
+
+    // ── DNA 분석 시작 버튼 ────────────────────────────────────────────
+    analyzeBtn.addEventListener('click', async () => {
+      const selectedItems = list.querySelectorAll('.spike-video-checkbox:checked');
+      const selectedIds = Array.from(selectedItems).map(cb => parseInt(cb.closest('.spike-video-item').dataset.videoId, 10));
+
+      // 버튼 비활성화 + 로딩 상태
+      analyzeBtn.disabled = true;
+      analyzeBtn.textContent = '🧬 DNA 추출 중... (약 30~60초 소요)';
+
+      // 리스트/가이드/카운터/버튼 영역 숨기고 로딩 UI 표시
+      const container = deepArea.querySelector('.spike-modal-container');
+      const guide = container?.querySelector('.spike-modal-guide');
+      const charCount = container?.querySelector('.spike-modal-char-count');
+      const actions = container?.querySelector('.spike-modal-actions');
+      if (guide) guide.style.display = 'none';
+      if (charCount) charCount.style.display = 'none';
+      if (actions) actions.style.display = 'none';
+      list.innerHTML = `
+        <div style="text-align:center; padding:40px 0;">
+          <div class="spike-loading-spinner"></div>
+          <p style="margin-top:16px; font-size:0.95rem; font-weight:600;">
+            🧬 선택한 영상의 전체 자막을 분석하고 있습니다...
+          </p>
+          <p style="margin-top:8px; font-size:0.82rem; color:var(--text-secondary);">
+            영상 길이에 따라 30초~2분 소요될 수 있습니다
+          </p>
+        </div>
+      `;
+
+      try {
+        const dnaResponse = await api.extractDna({ videoIds: selectedIds, category: catX });
+        showDnaResultModal(dnaResponse, catX, catY, isYadam, meta, deepArea, api, spikeVideos);
+      } catch (err) {
+        deepArea.querySelector('.chart-container').innerHTML = `
+          <div style="text-align:center; padding:40px 0;">
+            <div style="font-size:2rem; margin-bottom:12px;">⚠️</div>
+            <h3 style="font-size:1.05rem; font-weight:700; margin-bottom:8px;">DNA 추출에 실패했습니다</h3>
+            <p style="color:var(--text-secondary); font-size:0.85rem; margin-bottom:16px;">${err.message}</p>
+            <button class="spike-btn-close"
+              onclick="window.__activeDeepAnalysis = null; this.closest('.chart-container').remove()">
+              닫기
+            </button>
+          </div>
+        `;
+      }
+    });
+
+  } catch (err) {
+    console.error('[showSpikeVideoModal] 오류:', err);
+    deepArea.innerHTML = `
+      <div class="chart-container mb-24 animation-fade-in" style="border:1px solid var(--danger);">
+        <div style="padding:24px; text-align:center;">
+          <div style="color:var(--danger); font-weight:700; margin-bottom:8px;">❌ 떡상 영상 조회 실패</div>
+          <div style="font-size:0.85rem; color:var(--text-secondary);">${err.message}</div>
+          <button onclick="window.__activeDeepAnalysis = null; this.closest('.chart-container').remove()"
+            style="margin-top:16px; padding:8px 20px; border-radius:10px; border:1px solid var(--border); background:var(--bg-secondary); cursor:pointer; color:var(--text-primary);">
+            닫기
+          </button>
+        </div>
+      </div>
+    `;
+  }
+}

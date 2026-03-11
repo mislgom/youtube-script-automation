@@ -1316,4 +1316,465 @@ ${text}`;
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/analysis/gaps/spike-videos — 카테고리 내 떡상 영상 추출 (Gemini 호출 없음)
+router.post('/gaps/spike-videos', async (req, res) => {
+    try {
+        const { catX, catY, isYadam, meta } = req.body;
+        if (!catX || !catY) {
+            return res.status(400).json({ error: 'catX, catY는 필수입니다.' });
+        }
+
+        // ── 1. 해당 카테고리 영상 id 목록 수집 (최대 500개) ──────────────────
+        let categoryVideoIds = [];
+        let totalVideosInCategory = 0;
+        try {
+            let rows = [];
+
+            if (isYadam) {
+                // ── 야담 경로: meta ID 직접 활용 ─────────────────────────────
+                const eraId    = meta?.eraId    ? parseInt(meta.eraId,    10) : 0;
+                const eventId  = meta?.eventId  ? parseInt(meta.eventId,  10) : 0;
+                const sourceId = meta?.sourceId ? parseInt(meta.sourceId, 10) : 0;
+                const personId = meta?.personId ? parseInt(meta.personId, 10) : 0;
+                const regionId = meta?.regionId ? parseInt(meta.regionId, 10) : 0;
+
+                // Tier1: 5중 JOIN (era + event + source + person + region 모두 있을 때)
+                if (eraId && eventId && sourceId && personId && regionId) {
+                    rows = queryAll(`
+                        SELECT DISTINCT v.id FROM videos v
+                        JOIN video_categories vc1 ON v.id = vc1.video_id AND vc1.category_id = ?
+                        JOIN video_categories vc2 ON v.id = vc2.video_id AND vc2.category_id = ?
+                        JOIN video_categories vc3 ON v.id = vc3.video_id AND vc3.category_id = ?
+                        JOIN video_categories vc4 ON v.id = vc4.video_id AND vc4.category_id = ?
+                        JOIN video_categories vc5 ON v.id = vc5.video_id AND vc5.category_id = ?
+                        LIMIT 500
+                    `, [eraId, eventId, sourceId, personId, regionId]);
+                }
+
+                // Tier2: 3중 JOIN (era + event + source)
+                if (rows.length === 0 && eraId && eventId && sourceId) {
+                    rows = queryAll(`
+                        SELECT DISTINCT v.id FROM videos v
+                        JOIN video_categories vc1 ON v.id = vc1.video_id AND vc1.category_id = ?
+                        JOIN video_categories vc2 ON v.id = vc2.video_id AND vc2.category_id = ?
+                        JOIN video_categories vc3 ON v.id = vc3.video_id AND vc3.category_id = ?
+                        LIMIT 500
+                    `, [eraId, eventId, sourceId]);
+                }
+
+                // Tier3: catY의 "[시대] 사건유형" 형식 파싱 → 이름으로 3중 JOIN
+                if (rows.length === 0 && catY.includes('[') && catY.includes(']')) {
+                    const eraNameMatch   = catY.match(/\[(.*?)\]/);
+                    const eventNamePart  = catY.split(']')[1]?.trim();
+                    const eraRow   = eraNameMatch   ? queryOne('SELECT id FROM categories WHERE name = ? AND group_name = "시대"',      [eraNameMatch[1]]) : null;
+                    const eventRow = eventNamePart  ? queryOne('SELECT id FROM categories WHERE name = ? AND group_name = "사건유형"', [eventNamePart])   : null;
+                    // catX에서 소재 이름 추출 (첫 번째 + 앞 토큰)
+                    const sourceNameRaw = catX.split(/\s*\+\s*/)[0].trim();
+                    const sourceRow = sourceNameRaw ? queryOne('SELECT id FROM categories WHERE name = ? AND group_name = "소재출처"', [sourceNameRaw]) : null;
+
+                    if (eraRow && eventRow && sourceRow) {
+                        rows = queryAll(`
+                            SELECT DISTINCT v.id FROM videos v
+                            JOIN video_categories vc1 ON v.id = vc1.video_id AND vc1.category_id = ?
+                            JOIN video_categories vc2 ON v.id = vc2.video_id AND vc2.category_id = ?
+                            JOIN video_categories vc3 ON v.id = vc3.video_id AND vc3.category_id = ?
+                            LIMIT 500
+                        `, [eraRow.id, eventRow.id, sourceRow.id]);
+                    } else if (eraRow && eventRow) {
+                        rows = queryAll(`
+                            SELECT DISTINCT v.id FROM videos v
+                            JOIN video_categories vc1 ON v.id = vc1.video_id AND vc1.category_id = ?
+                            JOIN video_categories vc2 ON v.id = vc2.video_id AND vc2.category_id = ?
+                            LIMIT 500
+                        `, [eraRow.id, eventRow.id]);
+                    }
+                }
+
+                // Tier4: era ID만 있을 때 단일 JOIN
+                if (rows.length === 0 && eraId) {
+                    rows = queryAll(`
+                        SELECT DISTINCT v.id FROM videos v
+                        JOIN video_categories vc1 ON v.id = vc1.video_id AND vc1.category_id = ?
+                        LIMIT 500
+                    `, [eraId]);
+                }
+            } else {
+                // ── 커스텀 탭 경로: catX, catY 이름으로 2중 JOIN ──────────────
+                // group_name 무관하게 이름으로 검색 (커스텀 탭은 어떤 group이든 가능)
+                const catXRow = queryOne('SELECT id FROM categories WHERE name = ?', [catX]);
+                const catYRow = queryOne('SELECT id FROM categories WHERE name = ?', [catY]);
+
+                if (catXRow && catYRow) {
+                    rows = queryAll(`
+                        SELECT DISTINCT v.id FROM videos v
+                        JOIN video_categories vc1 ON v.id = vc1.video_id AND vc1.category_id = ?
+                        JOIN video_categories vc2 ON v.id = vc2.video_id AND vc2.category_id = ?
+                        LIMIT 500
+                    `, [catXRow.id, catYRow.id]);
+                } else if (catXRow) {
+                    rows = queryAll(`
+                        SELECT DISTINCT v.id FROM videos v
+                        JOIN video_categories vc1 ON v.id = vc1.video_id AND vc1.category_id = ?
+                        LIMIT 500
+                    `, [catXRow.id]);
+                } else if (catYRow) {
+                    rows = queryAll(`
+                        SELECT DISTINCT v.id FROM videos v
+                        JOIN video_categories vc1 ON v.id = vc1.video_id AND vc1.category_id = ?
+                        LIMIT 500
+                    `, [catYRow.id]);
+                }
+            }
+
+            // 공통 LIKE fallback (야담/커스텀 모두)
+            if (rows.length === 0) {
+                const rawTokens = [
+                    ...catX.replace(/\[|\]/g, ' ').split(/[\/\s,+]+/),
+                    ...catY.replace(/\[|\]/g, ' ').split(/[\/\s,+]+/)
+                ];
+                const keywords = [...new Set(rawTokens.filter(k => k.length >= 2))];
+                if (keywords.length > 0) {
+                    const likeClauses = keywords.map(() => '(v.title LIKE ? OR v.description LIKE ?)').join(' OR ');
+                    const params = keywords.flatMap(k => [`%${k}%`, `%${k}%`]);
+                    rows = queryAll(`
+                        SELECT DISTINCT v.id FROM videos v
+                        WHERE (${likeClauses})
+                        LIMIT 500
+                    `, params);
+                }
+            }
+
+            categoryVideoIds = rows.map(r => r.id);
+            totalVideosInCategory = categoryVideoIds.length;
+        } catch (dbErr) {
+            console.warn('[spikeVideos] 카테고리 조회 실패:', dbErr.message);
+        }
+
+        if (categoryVideoIds.length === 0) {
+            return res.json({ spikeVideos: [], totalVideosInCategory: 0, totalSpikeVideos: 0, category: catX, message: '카테고리 내 영상이 없습니다.' });
+        }
+
+        // ── 2. 채널 평균 조회수 맵 구성 ──────────────────────────────────────
+        const channelAvgRows = queryAll(`
+            SELECT channel_id, AVG(view_count) as avg_views
+            FROM videos
+            WHERE view_count > 0
+            GROUP BY channel_id
+        `);
+        const channelAvgMap = {};
+        for (const r of channelAvgRows) channelAvgMap[r.channel_id] = r.avg_views;
+
+        // ── 3. 후보 영상 전체 조회 (spike_ratio DESC) ────────────────────────
+        const placeholders = categoryVideoIds.map(() => '?').join(',');
+        const candidateRows = queryAll(`
+            SELECT
+                v.id,
+                v.video_id,
+                v.title,
+                v.view_count,
+                v.like_count,
+                v.duration_seconds,
+                v.published_at,
+                v.has_transcript,
+                LENGTH(v.transcript_raw) as transcript_length,
+                v.channel_id,
+                c.name as channel_name,
+                c.subscriber_count,
+                c.channel_id as youtube_channel_id,
+                CASE WHEN c.subscriber_count > 0
+                    THEN ROUND(CAST(v.view_count AS REAL) / c.subscriber_count, 2)
+                    ELSE 0
+                END as spike_ratio
+            FROM videos v
+            JOIN channels c ON v.channel_id = c.id
+            WHERE v.id IN (${placeholders})
+              AND v.view_count > 0
+              AND c.subscriber_count > 0
+            ORDER BY spike_ratio DESC
+        `, categoryVideoIds);
+
+        // ── 4. 단계적 떡상 필터 ──────────────────────────────────────────────
+        // 각 후보에 channelAvgMultiple 미리 계산
+        const withAvg = candidateRows.map(v => {
+            const avg = channelAvgMap[v.channel_id] || 0;
+            return { ...v, channelAvg: avg, channelAvgMultiple: avg > 0 ? v.view_count / avg : 0 };
+        });
+
+        // 단계1: spike_ratio >= 5.0 AND channelAvgMultiple >= 3.0
+        let spikeRows = withAvg.filter(v => v.spike_ratio >= 5.0 && v.channelAvgMultiple >= 3.0);
+
+        // 단계2: 10개 미만이면 spike_ratio >= 3.0 AND channelAvgMultiple >= 3.0
+        if (spikeRows.length < 10) {
+            spikeRows = withAvg.filter(v => v.spike_ratio >= 3.0 && v.channelAvgMultiple >= 3.0);
+        }
+
+        // 단계3: 그래도 없으면 spike_ratio >= 3.0 AND channelAvgMultiple >= 2.0
+        if (spikeRows.length === 0) {
+            spikeRows = withAvg.filter(v => v.spike_ratio >= 3.0 && v.channelAvgMultiple >= 2.0);
+        }
+
+        const totalSpikeVideos = spikeRows.length;
+        const top10 = spikeRows.slice(0, 10);
+
+        // ── 5. DNA 저장 여부 확인 ─────────────────────────────────────────────
+        const dnaVideoIds = new Set();
+        if (top10.length > 0) {
+            const allDnaRows = queryAll(`SELECT video_ids FROM video_dna`, []);
+            allDnaRows.forEach(row => {
+                try { JSON.parse(row.video_ids || '[]').forEach(id => dnaVideoIds.add(id)); } catch(e) {}
+            });
+        }
+
+        // ── 6. 응답 구성 ─────────────────────────────────────────────────────
+        const spikeVideos = top10.map(v => ({
+            id: v.id,
+            videoId: v.video_id,
+            title: v.title,
+            viewCount: v.view_count,
+            likeCount: v.like_count,
+            durationSeconds: v.duration_seconds,
+            publishedAt: v.published_at,
+            hasTranscript: v.has_transcript,
+            transcriptLength: v.transcript_length || 0,
+            channelName: v.channel_name,
+            subscriberCount: v.subscriber_count,
+            youtubeChannelId: v.youtube_channel_id,
+            spikeRatio: v.spike_ratio,
+            channelAvgViews: Math.round(v.channelAvg),
+            channelAvgMultiple: Math.round(v.channelAvgMultiple * 10) / 10,
+            hasDna: dnaVideoIds.has(v.id)
+        }));
+
+        if (spikeVideos.length === 0) {
+            return res.json({ spikeVideos: [], totalVideosInCategory, totalSpikeVideos: 0, category: catX, message: '떡상 조건을 충족하는 영상이 없습니다.' });
+        }
+
+        res.json({ spikeVideos, totalVideosInCategory, totalSpikeVideos, category: catX });
+    } catch (err) {
+        console.error('[spikeVideos] 오류:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/analysis/gaps/extract-dna — DNA 추출 및 저장
+router.post('/gaps/extract-dna', async (req, res) => {
+    try {
+        const { videoIds, category } = req.body;
+
+        // 1. 유효성 검사
+        if (!Array.isArray(videoIds) || videoIds.length === 0) {
+            return res.status(400).json({ error: '분석할 영상을 선택해주세요.' });
+        }
+        if (videoIds.length > 2) {
+            return res.status(400).json({ error: '최대 2개까지 선택 가능합니다.' });
+        }
+
+        // 2. 캐시 확인 (동일 영상 조합)
+        const sortedIds = [...videoIds].map(Number).sort((a, b) => a - b);
+        const videoIdsKey = JSON.stringify(sortedIds);
+
+        const cached = queryOne(
+            `SELECT * FROM video_dna WHERE video_ids = ? ORDER BY created_at DESC LIMIT 1`,
+            [videoIdsKey]
+        );
+
+        if (cached) {
+            let sourceVideos = [];
+            try {
+                const titles = JSON.parse(cached.video_titles || '[]');
+                const channels = JSON.parse(cached.channel_names || '[]');
+                const rows = queryAll(
+                    `SELECT v.id, v.video_id, v.view_count, c.subscriber_count,
+                            LENGTH(v.transcript_raw) as transcript_length, c.channel_id as youtube_channel_id
+                     FROM videos v JOIN channels c ON v.channel_id = c.id
+                     WHERE v.id IN (${sortedIds.map(() => '?').join(',')})`,
+                    sortedIds
+                );
+                sourceVideos = sortedIds.map((sid, i) => {
+                    const r = rows.find(row => row.id === sid) || {};
+                    return {
+                        id: sid,
+                        videoId: r.video_id || '',
+                        title: titles[i] || '',
+                        viewCount: r.view_count || 0,
+                        channelName: channels[i] || '',
+                        subscriberCount: r.subscriber_count || 0,
+                        transcriptLength: r.transcript_length || 0,
+                        youtubeChannelId: r.youtube_channel_id || ''
+                    };
+                });
+            } catch (e) {
+                console.warn('[extractDna] 캐시 소스영상 복원 실패:', e.message);
+            }
+            return res.json({
+                dna: JSON.parse(cached.dna_json),
+                sourceVideos,
+                isNewExtraction: false,
+                category: cached.category
+            });
+        }
+
+        // 3. 영상 정보 + 자막 조회
+        const rows = queryAll(
+            `SELECT v.id, v.video_id, v.title, v.view_count, v.like_count, v.duration_seconds, v.published_at,
+                    v.transcript_raw, LENGTH(v.transcript_raw) as transcript_length,
+                    c.name as channel_name, c.subscriber_count, c.channel_id as youtube_channel_id
+             FROM videos v JOIN channels c ON v.channel_id = c.id
+             WHERE v.id IN (${sortedIds.map(() => '?').join(',')})`,
+            sortedIds
+        );
+
+        // 4. 자막 있는 영상만 필터링
+        const videosWithTranscript = rows.filter(r => r.transcript_raw && r.transcript_raw.trim().length > 0);
+        if (videosWithTranscript.length === 0) {
+            return res.status(400).json({ error: '선택한 영상에 자막 데이터가 없습니다.' });
+        }
+
+        const videosArray = videosWithTranscript.map(r => ({
+            title: r.title,
+            view_count: r.view_count,
+            transcript_raw: r.transcript_raw,
+            description: ''
+        }));
+
+        // 5. DNA 추출 (Gemini 1회 호출)
+        const dna = await extractAdvancedDNA(videosArray, category || '야담');
+        if (!dna) {
+            return res.status(500).json({ error: 'DNA 추출에 실패했습니다. 잠시 후 다시 시도해주세요.' });
+        }
+
+        // 6. DB 저장
+        const titles = rows.map(r => r.title);
+        const channels = rows.map(r => r.channel_name);
+        runSQL(
+            `INSERT INTO video_dna (video_ids, video_titles, channel_names, category, dna_json) VALUES (?, ?, ?, ?, ?)`,
+            [videoIdsKey, JSON.stringify(titles), JSON.stringify(channels), category || '야담', JSON.stringify(dna)]
+        );
+
+        // 7. 응답
+        const sourceVideos = rows.map(r => ({
+            id: r.id,
+            videoId: r.video_id,
+            title: r.title,
+            viewCount: r.view_count,
+            channelName: r.channel_name,
+            subscriberCount: r.subscriber_count,
+            transcriptLength: r.transcript_length || 0,
+            youtubeChannelId: r.youtube_channel_id
+        }));
+
+        res.json({ dna, sourceVideos, isNewExtraction: true, category: category || '야담' });
+    } catch (err) {
+        console.error('[extractDna] 오류:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/analysis/gaps/suggest-topics — DNA 기반 주제 추천
+router.post('/gaps/suggest-topics', async (req, res) => {
+    try {
+        const { catX, catY, isYadam, meta, dna, spikeVideoTitles = [] } = req.body;
+        if (!catX || !dna) {
+            return res.status(400).json({ error: '카테고리와 DNA 정보가 필요합니다.' });
+        }
+
+        // 1. 기존 영상 제목 조회 (title + view_count만, LIMIT 500)
+        let existingVideos = [];
+        try {
+            if (meta && meta.eraId && meta.eventId && meta.sourceId && meta.personId && meta.regionId) {
+                existingVideos = queryAll(`
+                    SELECT DISTINCT v.title, v.view_count FROM videos v
+                    JOIN video_categories vc1 ON v.id = vc1.video_id AND vc1.category_id = ?
+                    JOIN video_categories vc2 ON v.id = vc2.video_id AND vc2.category_id = ?
+                    JOIN video_categories vc3 ON v.id = vc3.video_id AND vc3.category_id = ?
+                    JOIN video_categories vc4 ON v.id = vc4.video_id AND vc4.category_id = ?
+                    JOIN video_categories vc5 ON v.id = vc5.video_id AND vc5.category_id = ?
+                    ORDER BY v.view_count DESC LIMIT 500
+                `, [meta.eraId, meta.eventId, meta.sourceId, meta.personId, meta.regionId]);
+            }
+
+            if (existingVideos.length === 0) {
+                const catXRow = queryOne('SELECT id FROM categories WHERE name = ?', [catX]);
+                if (catXRow) {
+                    if (isYadam && catY && catY.includes('[') && catY.includes(']')) {
+                        const eraNameMatch = catY.match(/\[(.*?)\]/);
+                        const eventNameMatch = catY.split(']')[1]?.trim();
+                        if (eraNameMatch && eventNameMatch) {
+                            const eraRow = queryOne('SELECT id FROM categories WHERE name = ? AND group_name = "시대"', [eraNameMatch[1]]);
+                            const eventRow = queryOne('SELECT id FROM categories WHERE name = ? AND group_name = "사건유형"', [eventNameMatch]);
+                            if (eraRow && eventRow) {
+                                existingVideos = queryAll(`
+                                    SELECT DISTINCT v.title, v.view_count FROM videos v
+                                    JOIN video_categories vc1 ON v.id = vc1.video_id AND vc1.category_id = ?
+                                    JOIN video_categories vc2 ON v.id = vc2.video_id AND vc2.category_id = ?
+                                    JOIN video_categories vc3 ON v.id = vc3.video_id AND vc3.category_id = ?
+                                    ORDER BY v.view_count DESC LIMIT 500
+                                `, [eraRow.id, eventRow.id, catXRow.id]);
+                            }
+                        }
+                    }
+
+                    if (existingVideos.length === 0) {
+                        const catYRow = catY ? queryOne('SELECT id FROM categories WHERE name = ?', [catY]) : null;
+                        if (catYRow) {
+                            existingVideos = queryAll(`
+                                SELECT DISTINCT v.title, v.view_count FROM videos v
+                                JOIN video_categories vc1 ON v.id = vc1.video_id AND vc1.category_id = ?
+                                JOIN video_categories vc2 ON v.id = vc2.video_id AND vc2.category_id = ?
+                                ORDER BY v.view_count DESC LIMIT 500
+                            `, [catXRow.id, catYRow.id]);
+                        }
+                        if (existingVideos.length === 0) {
+                            existingVideos = queryAll(`
+                                SELECT DISTINCT v.title, v.view_count FROM videos v
+                                JOIN video_categories vc1 ON v.id = vc1.video_id AND vc1.category_id = ?
+                                ORDER BY v.view_count DESC LIMIT 500
+                            `, [catXRow.id]);
+                        }
+                    }
+                }
+            }
+
+            // LIKE fallback
+            if (existingVideos.length === 0) {
+                const keywords = [
+                    ...catX.split(/[\/\s,]+/).filter(k => k.length >= 2),
+                    ...(catY || '').replace(/\[|\]/g, ' ').split(/[\/\s,]+/).filter(k => k.length >= 2)
+                ];
+                if (keywords.length > 0) {
+                    const likeClauses = keywords.map(() => 'v.title LIKE ?').join(' OR ');
+                    const params = keywords.map(k => `%${k}%`);
+                    existingVideos = queryAll(`
+                        SELECT DISTINCT v.title, v.view_count FROM videos v
+                        WHERE (${likeClauses}) ORDER BY v.view_count DESC LIMIT 500
+                    `, params);
+                }
+            }
+        } catch (dbErr) {
+            console.warn('[suggestTopics] DB 조회 실패:', dbErr.message);
+        }
+
+        const existingVideoCount = existingVideos.length;
+        console.log(`[suggestTopics] ${catY} × ${catX} — 기존 영상 ${existingVideoCount}개`);
+
+        // 2. _spike_titles를 dna에 임시 첨부
+        const enrichedDna = { ...dna, _spike_titles: spikeVideoTitles };
+
+        // 3. deepSuggestTopics 호출 (120초 타임아웃)
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('주제 추천 시간 초과 (120초)')), 120000)
+        );
+        const suggestions = await Promise.race([
+            deepSuggestTopics(catX, catY || '', '통합 소재', '시대/사건', existingVideos, false, enrichedDna, isYadam || false, meta || null),
+            timeoutPromise
+        ]);
+
+        res.json({ suggestions, existingVideoCount, category: catX });
+    } catch (err) {
+        console.error('[suggestTopics] 오류:', err.message);
+        const status = err.status || 500;
+        res.status(status).json({ error: err.message });
+    }
+});
+
 export default router;

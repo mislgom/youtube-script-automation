@@ -135,5 +135,10 @@ export const api = {
     // v3: Economy High-Intensity Flow
     getEconomyRealtimeV3: (params) => request('/analysis/economy/realtime-v3', { params }),
     suggestEconomyTopicsV3: (data) => request('/analysis/economy/suggest-topics-v3', { method: 'POST', body: data }),
-    getThumbnailTitlesV3: (data) => request('/analysis/economy/thumbnail-titles-v3', { method: 'POST', body: data })
+    getThumbnailTitlesV3: (data) => request('/analysis/economy/thumbnail-titles-v3', { method: 'POST', body: data }),
+
+    // 떡상 영상 추출 (Gemini 없음)
+    getSpikeVideos: (data) => request('/analysis/gaps/spike-videos', { method: 'POST', body: data }),
+    extractDna: (data) => request('/analysis/gaps/extract-dna', { method: 'POST', body: data }),
+    suggestTopics: (data) => request('/analysis/gaps/suggest-topics', { method: 'POST', body: data }),
 };
