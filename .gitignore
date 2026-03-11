@@ -1,4 +1,8 @@
 node_modules/
 *.db
+*.db-shm
+*.db-wal
 debug.log
 server/youtube-namin-*.json
+server/services/youtube-namin-*.json
+.claude/
