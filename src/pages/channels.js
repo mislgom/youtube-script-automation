@@ -9,25 +9,6 @@ let activeJobs = new Map();  // channelId -> pollInterval
 let isFetchAllRunning = false;
 const LS_KEY = 'channelFetchState';
 
-// ─── Batch queue (동시 폴링 최대 5개 제한) ──────────────────────────────
-const MAX_CONCURRENT_POLLS = 5;
-let batchQueue = [];
-let activeBatchCount = 0;
-
-function fillBatchSlots(api) {
-  while (activeBatchCount < MAX_CONCURRENT_POLLS && batchQueue.length > 0) {
-    const chId = batchQueue.shift();
-    activeBatchCount++;
-    startSingleCollection(api, chId, false);
-  }
-}
-
-function dispatchBatch(api, channelIds) {
-  batchQueue = [...channelIds];
-  activeBatchCount = 0;
-  fillBatchSlots(api);
-}
-
 // ─── localStorage helpers ──────────────────────────────────────────────────
 function saveFetchState() {
   if (!isFetchAllRunning) return;
@@ -76,12 +57,6 @@ function updateChannelCount(channelId) {
 
 // ─── Batch orchestration ───────────────────────────────────────────────────
 function onChannelDone(api, channelId) {
-  activeBatchCount = Math.max(0, activeBatchCount - 1);
-  // 큐에 대기 중인 채널이 있으면 다음 슬롯 채우기
-  if (batchQueue.length > 0) {
-    fillBatchSlots(api);
-    return;
-  }
   saveFetchState();
   if (activeJobs.size === 0 && isFetchAllRunning) {
     isFetchAllRunning = false;
@@ -282,8 +257,10 @@ export async function renderChannels(container, { api, navigate }) {
 
     isFetchAllRunning = true;
     setBatchRunningBtn();
-    showToast(`경제 채널 ${toFetch.length}개 수집을 시작합니다. (동시 ${MAX_CONCURRENT_POLLS}개)`, 'info');
-    dispatchBatch(api, toFetch.map(ch => ch.id));
+    showToast(`경제 채널 ${toFetch.length}개 수집을 시작합니다.`, 'info');
+    for (const ch of toFetch) {
+      startSingleCollection(api, ch.id, false);
+    }
     saveFetchState();
   });
 
@@ -299,8 +276,10 @@ export async function renderChannels(container, { api, navigate }) {
 
     isFetchAllRunning = true;
     setBatchRunningBtn();
-    showToast(`${toFetch.length}개 채널 수집을 시작합니다. (동시 ${MAX_CONCURRENT_POLLS}개)`, 'info');
-    dispatchBatch(api, toFetch.map(ch => ch.id));
+    showToast(`${toFetch.length}개 채널 수집을 시작합니다.`, 'info');
+    for (const ch of toFetch) {
+      startSingleCollection(api, ch.id, false);
+    }
     saveFetchState();
   });
 
