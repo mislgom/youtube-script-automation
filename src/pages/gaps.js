@@ -50,10 +50,10 @@ export async function renderGaps(container, { api }) {
     <div class="card mb-24 hidden" id="yadam-info-card" style="background:var(--accent-glow); border:2px solid var(--accent); position:relative;">
       <div class="flex-between" style="align-items:center;">
         <div>
-          <h4 style="margin:0 0 6px 0; color:var(--accent); font-weight:800; font-size:1.1rem;">🏮 야담 전용 분석 : [조선시대] × [모든 카테고리] 중복 분석</h4>
-          <p style="margin:0; font-size:0.88rem; color:var(--text-secondary); line-height:1.5;">
-            사용자님의 요청대로 <span style="color:var(--accent); font-weight:800;">한 축(시대)과 다른 한 축(모든 소재)</span>의 중복 데이터를 즉시 분석합니다.<br>
-            유튜브 내에서 어떤 세분화 된 주제들이 비어있는지(완전 미개척) 한눈에 확인하세요.
+          <h4 style="margin:0 0 8px 0; color:var(--accent); font-weight:800; font-size:1.1rem;">🏮 야담 전용 분석기</h4>
+          <p style="margin:0; color:var(--text-secondary); line-height:1.6;">
+            현재까지 수집된 <span id="yadam-total-count" style="color:var(--accent); font-weight:900; font-size:1.35rem;">—</span>개의 영상을 분석하여<br>
+            각 소재별 포화도 데이터를 보여드립니다.
           </p>
         </div>
         <button class="btn btn-primary" id="yadam-analyze-btn" style="min-width:140px; font-weight:800;">야담 분석 실행</button>
@@ -65,7 +65,7 @@ export async function renderGaps(container, { api }) {
       <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;">
         <div>
           <div style="font-weight:700; font-size:0.95rem; color:var(--text-primary); margin-bottom:4px;">🏷️ 세부 카테고리 AI 자동 분류</div>
-          <div style="font-size:0.8rem; color:var(--text-muted);" id="sub-classify-progress-text">진행률 조회 중...</div>
+          <div style="font-size:0.9rem; color:var(--text-muted);" id="sub-classify-progress-text">진행률 조회 중...</div>
         </div>
         <button class="btn btn-secondary" id="sub-classify-btn" style="white-space:nowrap; font-size:0.85rem;">▶ 분류 실행</button>
       </div>
@@ -254,7 +254,9 @@ export async function renderGaps(container, { api }) {
     try {
       const prog = await api.getSubCategoryProgress();
       const pct = prog.total > 0 ? Math.round(prog.classified / prog.total * 100) : 0;
-      subClassifyProgressText.textContent = `전체 ${prog.total}개 영상 중 ${prog.classified}개 분류 완료 (${pct}%) · 미분류 ${prog.unclassified}개`;
+      const countEl = document.getElementById('yadam-total-count');
+      if (countEl) countEl.textContent = prog.total.toLocaleString();
+      subClassifyProgressText.innerHTML = `전체 <b style="color:var(--text-primary); font-size:1rem;">${prog.total.toLocaleString()}</b>개 영상 중 <b style="color:var(--accent); font-size:1rem;">${prog.classified.toLocaleString()}</b>개 분류 완료 (<b style="color:var(--accent);">${pct}%</b>) &nbsp;·&nbsp; 미분류 <b style="color:#f59e0b; font-size:1rem;">${prog.unclassified.toLocaleString()}</b>개`;
       if (subClassifyBtn) {
         if (prog.unclassified === 0) {
           subClassifyBtn.disabled = true;
@@ -381,32 +383,6 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
   const renderContent = () => {
     const filteredGaps = data.gaps || [];
 
-    // Process data into rows (using new allRowCells structure)
-    const rows = data.yLabels.map((y, yi) => {
-      const rowData = data.allRowCells ? data.allRowCells[yi] : [];
-
-      const cells = rowData.map(c => {
-        const level = getLevel(c.count);
-        const demandBadge = level >= 4 ? '🔥' : level >= 2 ? '✅' : '';
-
-        // Visibility check for the BOX itself
-        let isBoxVisible = level >= 1; // 1개라도 있으면 표시
-        if (filterMode === 'yellow' && (level < 2 || level >= 4)) isBoxVisible = false;
-        if (filterMode === 'red' && level < 4) isBoxVisible = false;
-
-        return {
-          ...c,
-          level,
-          demandBadge,
-          isBoxVisible
-        };
-      });
-
-      const totalVisibleCells = cells.filter(c => c.isBoxVisible).length;
-
-      return { label: y, cells, totalVisibleCells };
-    }).filter(r => r.totalVisibleCells > 0);
-
     // Sidebar list data (using new allRowCells structure)
     const localFilteredGaps = []; // 중복 누적 방지를 위해 로컬 변수 사용
     data.yLabels.forEach((y, yi) => {
@@ -429,19 +405,6 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
     localFilteredGaps.sort((a, b) => b.level - a.level || b.count - a.count);
     const suggestions = localFilteredGaps;
 
-    // UI 배지 제거 (사용자 요청: 실시간 하이브리드 분석 박스 숨김)
-    const statsHtml = data.stats ? `
-      <div class="stats-bar mb-24" style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:12px; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; font-size:0.85rem;">
-        <div class="flex gap-20">
-          <span>📊 전체 수집 영상: <b style="color:var(--text);">${data.stats.total.toLocaleString()}개</b></span>
-          <span>✅ AI 분석 완료: <b style="color:var(--accent);">${data.stats.analyzed.toLocaleString()}개</b></span>
-          <span>🔍 분석 적용률: <b style="color:var(--accent);">${data.stats.percent}%</b></span>
-        </div>
-        <div style="color:var(--text-muted); font-size:0.75rem;">
-          💡 AI 태깅이 완료된 영상들만 분석 차트에 집계됩니다.
-        </div>
-      </div>
-    ` : '';
 
     const maxCount = (data.topCombined && data.topCombined.length > 0) ? data.topCombined[0].count : 1;
     const topCombinedHtml = (data.topCombined && data.topCombined.length > 0) ? `
@@ -476,42 +439,15 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
     ` : '';
 
     el.innerHTML = `
-      ${statsHtml}
       ${topCombinedHtml}
       <div class="two-col">
-        <div class="chart-container" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:24px; box-sizing:border-box; ${rows.length === 0 || isRestore ? 'height:244px; overflow:hidden;' : 'overflow-y:auto;'}">
-          ${rows.length === 0 || isRestore ? `
-            <h4 style="color:#e2e8f0; font-size:16px; margin-bottom:0;">📊 요약 분석</h4>
-            <p style="color:#94a3b8; text-align:center; margin-top:70px;">분석을 실행하면 카테고리별 분포가<br>여기에 표시됩니다.</p>
-          ` : `
-          <div class="flex-between mb-8">
-            <h4>📊 인기 주제 분포</h4>
+        <div class="chart-container" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:24px; box-sizing:border-box; overflow-y:auto;">
+          <h4>📊 세부 카테고리 분포</h4>
+          <div class="compact-view">
+            <p style="color:var(--text-muted); text-align:center; padding:40px 0; font-size:0.85rem;">
+              수퍼니치 카드를 클릭하면 세부 분포가 표시됩니다.
+            </p>
           </div>
-          <p style="font-size:0.78rem; color:var(--text-muted); margin-bottom:16px;">
-            영상이 많을수록 시청자 수요가 검증된 인기 주제입니다. 클릭하여 차별화 전략을 확인하세요.
-          </p>
-          <div class="compact-view" style="display:flex; flex-direction:column; gap:30px;">
-            ${rows.map(r => `
-              <div class="compact-row" style="background:rgba(255,255,255,0.02); padding:15px; border-radius:16px;">
-                <div class="row-label mb-16" style="font-weight:800; color:var(--accent); border-left:4px solid var(--accent); padding-left:12px;">${r.label}</div>
-                <div class="cells-wrapper" style="display:flex; flex-wrap:wrap; gap:12px;">
-                  ${r.cells.filter(c => c.isBoxVisible).map(c => `
-                    <div class="heatmap-cell level-${c.level} clickable-cell"
-                         data-full-label="${c.fullLabel}" data-y="${r.label}"
-                         data-era-id="${c.meta.eraId}" data-event-id="${c.meta.eventId}"
-                         data-source-id="${c.meta.sourceId}" data-person-id="${c.meta.personId}"
-                         data-region-id="${c.meta.regionId}"
-                         data-count="${c.count}"
-                         style="min-width:110px; padding:12px 18px; border-radius:14px; display:flex; flex-direction:column; align-items:center; border:1px solid rgba(255,255,255,0.08); cursor:pointer; transition:all 0.2s; overflow:hidden;">
-                      <span style="font-size:0.75rem; font-weight:700; text-align:center; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:block; line-height:1.2;">${c.label}</span>
-                      <span style="font-size:1.2rem; font-weight:900; line-height:1; color:var(--text-primary); margin-top:4px;">${c.count.toLocaleString()}${c.demandBadge}</span>
-                    </div>
-                  `).join('')}
-                </div>
-              </div>
-            `).join('')}
-          </div>
-          `}
         </div>
         <div>
           <!-- ID 충돌 방지를 위해 클래스 기반으로 접근하거나 고유 ID 부여 -->
@@ -643,32 +579,6 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
         const sourceId = card.dataset.sourceId;
         const label = card.dataset.fullLabel;
         await drillDownToDetail(eraId, eventId, sourceId, label);
-      });
-    });
-
-    // [히트맵 셀 전용] .heatmap-cell 클릭 → AI 심층 분석
-    el.querySelectorAll('.heatmap-cell.clickable-cell').forEach(cell => {
-      cell.addEventListener('click', async () => {
-        const catX = cell.dataset.fullLabel || cell.dataset.x;
-        const catY = cell.dataset.y;
-        const count = parseInt(cell.dataset.count || '0', 10);
-        const isYadam = currentMode === 'yadam';
-        const meta = {
-          eraId: cell.dataset.eraId,
-          eventId: cell.dataset.eventId,
-          sourceId: cell.dataset.sourceId,
-          personId: cell.dataset.personId,
-          regionId: cell.dataset.regionId
-        };
-        const deepArea = el.querySelector('.deep-analysis-area-scoped');
-        console.log('[DEBUG] Summary Cell Clicked:', { catX, catY, count, deepArea });
-        if (!deepArea) {
-          showToast('분석 영역을 찾을 수 없습니다.', 'error');
-          console.error('[ERROR] .deep-analysis-area-scoped not found in summary!');
-          return;
-        }
-        showToast(`'${catX}' 기획 분석을 시작합니다...`, 'info');
-        await performDeepAnalysis(catX, catY, '통합 소재', '시대/사건', count, api, isYadam, meta, deepArea);
       });
     });
 
