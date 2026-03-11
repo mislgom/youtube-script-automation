@@ -25,26 +25,9 @@ export async function renderGaps(container, { api }) {
 
     <!-- 탭 시스템 추가 -->
     <div class="flex gap-12 mb-24" id="gap-tabs" style="background:rgba(255,255,255,0.03); padding:6px; border-radius:12px; border:1px solid rgba(255,255,255,0.05);">
-      <button class="btn btn-secondary active-tab" data-mode="yadam" style="flex:1.2; font-weight:800; font-size:1rem; padding:12px;">🏮 야담 전용 분석</button>
-      <button class="btn btn-secondary" data-mode="economy" style="flex:1; font-weight:700;">📈 경제 트렌드</button>
-      <button class="btn btn-secondary" data-mode="custom" style="flex:1; font-weight:700;">📊 맞춤형 경쟁 분석</button>
-    </div>
-
-    <div class="card mb-24 hidden" id="custom-selector-card">
-      <div class="flex gap-16" style="align-items:flex-end;">
-        <div class="input-group" style="flex:1;margin-bottom:0;">
-          <label>X축 (가로)</label>
-          <select id="gap-x"><option value="">카테고리 그룹 선택...</option></select>
-        </div>
-        <div class="input-group" style="flex:1;margin-bottom:0;">
-          <label>Y축 (세로)</label>
-          <select id="gap-y"><option value="">카테고리 그룹 선택...</option></select>
-        </div>
-        <button class="btn btn-primary" id="gap-analyze-btn">📊 분석 시작</button>
-      </div>
-      <div style="margin-top:12px; font-size:0.78rem; color:var(--text-muted); padding-left:4px;">
-        💡 조선시대 고정 기반의 종합 분석을 원하시면 상단의 <b>'🏮 야담 전용 분석'</b> 탭을 클릭해 보세요. (자동 분석)
-      </div>
+      <button class="btn btn-secondary active-tab" data-mode="yadam" style="flex:1.2; font-weight:800; font-size:1rem; padding:12px;">🏮 야담 채널 분석</button>
+      <button class="btn btn-secondary" data-mode="economy" style="flex:1; font-weight:700;">📈 경제 채널 분석</button>
+      <button class="btn btn-secondary" data-mode="custom" style="flex:1; font-weight:700;">🧠 심리 채널 분석</button>
     </div>
 
     <div class="card mb-24 hidden" id="yadam-info-card" style="background:var(--accent-glow); border:2px solid var(--accent); position:relative;">
@@ -77,7 +60,13 @@ export async function renderGaps(container, { api }) {
     <div id="gap-results">
       <div id="yadam-results-container" class="mode-container hidden"></div>
       <div id="economy-results-container" class="mode-container hidden"></div>
-      <div id="custom-results-container" class="mode-container hidden"></div>
+      <div id="custom-results-container" class="mode-container hidden">
+        <div class="card mb-24" style="text-align:center; padding:48px 24px; color:var(--text-muted);">
+          <div style="font-size:2rem; margin-bottom:12px;">🧠</div>
+          <div style="font-size:1rem; font-weight:700; color:var(--text-primary); margin-bottom:8px;">심리 채널 분석</div>
+          <div style="font-size:0.88rem; line-height:1.6;">준비 중입니다.</div>
+        </div>
+      </div>
     </div>
   `;
 
@@ -86,9 +75,8 @@ export async function renderGaps(container, { api }) {
   window.__appState = window.__appState || {};
   // 야담 분석을 최우선 기본값으로 강제 설정 (사용자 요청 반영)
   let currentMode = window.__appState.gapsMode || saved.mode || 'yadam';
-  if (currentMode === 'custom' && !saved.customData) currentMode = 'yadam';
+  if (currentMode === 'custom') currentMode = 'yadam';
 
-  const selectorCard = document.getElementById('custom-selector-card');
   const yadamCard = document.getElementById('yadam-info-card');
   const resultsEl = document.getElementById('gap-results');
   const tabs = document.querySelectorAll('#gap-tabs button');
@@ -111,7 +99,7 @@ export async function renderGaps(container, { api }) {
       }
     });
 
-    [selectorCard, yadamCard, yadamCont, economyCont, customCont].forEach(c => c && c.classList.add('hidden'));
+    [yadamCard, yadamCont, economyCont, customCont].forEach(c => c && c.classList.add('hidden'));
 
     if (mode === 'yadam') {
       yadamCard.classList.remove('hidden');
@@ -125,7 +113,6 @@ export async function renderGaps(container, { api }) {
       economyCont.classList.remove('hidden');
       runEconomyAnalysis(); // 탭 전환 시 즉시 엔진 기동
     } else if (mode === 'custom') {
-      selectorCard.classList.remove('hidden');
       customCont.classList.remove('hidden');
     }
   };
@@ -148,14 +135,7 @@ export async function renderGaps(container, { api }) {
       renderEconomyTrends(s.economyData, api, economyCont);
     }
 
-    // 3. Custom Mode
-    if (s.customStatus === 'LOADING' && s.customParams) {
-      runCustomAnalysis(s.customParams.gx, s.customParams.gy);
-    } else if (s.customData) {
-      renderGapResults(s.customData.data, s.customData.gx, s.customData.gy, api, customCont, true);
-    }
-
-    // 4. Deep Analysis (Yadam/Custom)
+    // 3. Deep Analysis (Yadam/Custom)
     // [안전장치] deepStatus=LOADING 상태 자동 재실행 제거 — 페이지 새로고침 시 Gemini 자동 호출 차단
     // 이전 분석이 중단된 경우 사용자가 히트맵을 직접 클릭해야 재실행됩니다.
     if (s.deepStatus === 'LOADING' && s.deepParams) {
@@ -218,32 +198,10 @@ export async function renderGaps(container, { api }) {
     await renderEconomyV3(api, economyCont);
   };
 
-  const runCustomAnalysis = async (gx, gy) => {
-    updateStoredState({ customStatus: 'LOADING', customData: null, customParams: { gx, gy } });
-    customCont.innerHTML = '<div class="flex-center" style="padding:40px;"><div class="spinner"></div></div>';
-    try {
-      const data = await api.getGaps({ groupX: gx, groupY: gy });
-      updateStoredState({ customStatus: 'SUCCESS', customData: { data, gx, gy } });
-      renderGapResults(data, gx, gy, api, customCont);
-    } catch (err) {
-      updateStoredState({ customStatus: 'IDLE' });
-      customCont.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${err.message}</p></div>`;
-    }
-  };
 
   // --- [Event Listeners] ---
   tabs.forEach(tab => tab.addEventListener('click', () => updateModeUI(tab.dataset.mode)));
   document.getElementById('yadam-analyze-btn').addEventListener('click', runYadamAnalysis);
-  // economy-analyze-btn 제거됨 (탭 클릭으로 통합)
-  document.getElementById('gap-analyze-btn').addEventListener('click', () => {
-    const gx = document.getElementById('gap-x').value;
-    const gy = document.getElementById('gap-y').value;
-    if (!gx || !gy || gx === gy) {
-      showToast('카테고리를 선택하시거나, 상단의 [🏮 야담 전용 분석]을 이용해주세요.', 'warning');
-      return;
-    }
-    runCustomAnalysis(gx, gy);
-  });
 
   // 세부 카테고리 분류 버튼
   const subClassifyBtn = document.getElementById('sub-classify-btn');
