@@ -30,18 +30,6 @@ export async function renderGaps(container, { api }) {
       <button class="btn btn-secondary" data-mode="custom" style="flex:1; font-weight:700;">🧠 심리 채널 분석</button>
     </div>
 
-    <div class="card mb-24 hidden" id="yadam-info-card" style="background:var(--accent-glow); border:2px solid var(--accent); position:relative;">
-      <div class="flex-between" style="align-items:center;">
-        <div>
-          <h4 style="margin:0 0 8px 0; color:#ffffff; font-weight:800; font-size:1.25rem;">🏮 야담 전용 분석기</h4>
-          <p style="margin:0; color:#ffffff; font-size:1.2rem; line-height:1.5;">
-            현재까지 수집된 <span id="yadam-total-count" style="color:#facc15; font-weight:900; font-size:1.35rem;">—</span>개의 영상을 분석하여 각 소재별 포화도 데이터를 보여드립니다.
-          </p>
-        </div>
-        <button class="btn btn-primary" id="yadam-analyze-btn" style="min-width:140px; font-weight:800;">야담 분석 실행</button>
-      </div>
-    </div>
-
     <!-- 세부 카테고리 AI 분류 카드 -->
     <div class="card mb-24" id="sub-classify-card" style="border:1px solid rgba(255,255,255,0.08);">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;">
@@ -52,6 +40,18 @@ export async function renderGaps(container, { api }) {
         <button class="btn btn-secondary" id="sub-classify-btn" style="white-space:nowrap; font-size:0.85rem;">▶ 분류 실행</button>
       </div>
       <div id="sub-classify-status" style="margin-top:10px; font-size:0.8rem; color:var(--accent); display:none;"></div>
+    </div>
+
+    <div class="card mb-24 hidden" id="yadam-info-card" style="background:var(--accent-glow); border:2px solid var(--accent); position:relative;">
+      <div class="flex-between" style="align-items:center;">
+        <div>
+          <h4 style="margin:0 0 8px 0; color:#ffffff; font-weight:800; font-size:1.25rem;">🏮 야담 전용 분석기</h4>
+          <p style="margin:0; color:#ffffff; font-size:1.2rem; line-height:1.5;">
+            현재까지 수집된 <span id="yadam-total-count" style="color:#facc15; font-weight:900; font-size:1.35rem;">—</span>개의 영상을 분석하여 각 소재별 포화도 데이터를 보여드립니다.
+          </p>
+        </div>
+        <button class="btn btn-primary" id="yadam-analyze-btn" style="min-width:140px; font-weight:800;">야담 분석 실행</button>
+      </div>
     </div>
 
     <!-- 경제 분석 중간 단계 카드 제거됨 (자동 활성화) -->
