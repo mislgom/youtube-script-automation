@@ -69,7 +69,7 @@ ${corpus}
 }`;
 
     try {
-        const raw = await callGemini(prompt, { useGoogleSearch: true });
+        const raw = await callGemini(prompt, { jsonMode: true });
         if (!raw || typeof raw !== 'string') return null;
         const jsonStr = raw.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(jsonStr);
@@ -239,7 +239,7 @@ ${sectionStr}
 }`;
 
     try {
-        const raw = await callGemini(prompt, { useGoogleSearch: true });
+        const raw = await callGemini(prompt, { jsonMode: true });
         if (!raw || typeof raw !== 'string') return null;
         const jsonStr = raw.replace(/```json|```/g, '').trim();
         return JSON.parse(jsonStr);
