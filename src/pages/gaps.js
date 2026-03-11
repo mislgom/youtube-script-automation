@@ -402,7 +402,7 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
     el.innerHTML = `
       ${topCombinedHtml}
       <div class="two-col">
-        <div class="chart-container" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:24px; box-sizing:border-box; overflow-y:auto;">
+        <div class="chart-container" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:24px 24px 40px; box-sizing:border-box; overflow-y:auto;">
           <h4 style="text-align:center; color:#ffffff; font-size:1.1rem; margin:0 0 12px 0;">세부 카테고리 분포</h4>
           <div class="compact-view">
             <p style="color:var(--text-muted); text-align:center; padding:40px 0; font-size:0.85rem;">
@@ -419,7 +419,7 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
     `;
 
     // [드릴 다운 연동] 수퍼 니치 카드 클릭 시 하단 그리드 업데이트 함수
-    const drillDownToDetail = async (eraId, eventId, sourceId, label) => {
+    const drillDownToDetail = async (eraId, eventId, sourceId, label, count) => {
       const compactView = el.querySelector('.compact-view');
       const headerTitle = el.querySelector('.chart-container h4');
 
@@ -439,7 +439,8 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
         headerTitle.style.textAlign = 'center';
         headerTitle.style.color = '#ffffff';
         headerTitle.style.fontSize = '1.1rem';
-        headerTitle.innerHTML = `[${label}] 세부 카테고리 분포 (${detail.totalVideos || 0}개 영상 기준)`;
+        const displayCount = count ? Number(count).toLocaleString() : (detail.totalVideos || 0).toLocaleString();
+        headerTitle.innerHTML = `<span style="color:#facc15;">[${label}]</span> 세부 카테고리 분포 (${displayCount}개 영상 기준)`;
 
         if (!hasGroups) {
           compactView.innerHTML = `
@@ -542,7 +543,8 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
         const eventId = card.dataset.eventId;
         const sourceId = card.dataset.sourceId;
         const label = card.dataset.fullLabel;
-        await drillDownToDetail(eraId, eventId, sourceId, label);
+        const count = card.dataset.count;
+        await drillDownToDetail(eraId, eventId, sourceId, label, count);
       });
     });
 
