@@ -5,6 +5,7 @@ import { compareTexts, getTopKeywords } from '../services/similarity.js';
 import { callGemini, compareWithGemini, suggestTopics, analyzeComments, generateBenchmarkReport, generateUniqueSkeleton, deepSuggestTopics, editScript } from '../services/gemini-service.js';
 import { buildGapMatrix, buildYadamGapMatrix, getEconomyTrendAnalysis, getCategoryDistribution, getCategoryGroups, getTrends, getTrendsByCategory, getNicheDetailGrid } from '../services/gap-analyzer.js';
 import { fetchComments } from '../services/youtube-fetcher.js';
+import { fetchTranscript } from '../services/transcript-fetcher.js';
 import { pickSpikeVideos } from '../services/spike-selector.js';
 import { extractSpikeDNA, formatDNAForPrompt } from '../services/dna-extractor.js';
 import { extractAdvancedDNA } from '../services/advanced-dna-extractor.js';
@@ -1534,8 +1535,6 @@ router.post('/gaps/spike-videos', async (req, res) => {
             likeCount: v.like_count,
             durationSeconds: v.duration_seconds,
             publishedAt: v.published_at,
-            hasTranscript: v.has_transcript,
-            transcriptLength: v.transcript_length || 0,
             channelName: v.channel_name,
             subscriberCount: v.subscriber_count,
             youtubeChannelId: v.youtube_channel_id,
@@ -1558,6 +1557,7 @@ router.post('/gaps/spike-videos', async (req, res) => {
 
 // POST /api/analysis/gaps/extract-dna — DNA 추출 및 저장
 router.post('/gaps/extract-dna', async (req, res) => {
+    res.setTimeout(240000);
     try {
         const { videoIds, category } = req.body;
 
@@ -1624,10 +1624,39 @@ router.post('/gaps/extract-dna', async (req, res) => {
             sortedIds
         );
 
-        // 4. 자막 있는 영상만 필터링
+        // 4. 자막 없는 영상 실시간 수집
+        const newlyCollected = new Set();
+        for (const row of rows) {
+            if (!row.transcript_raw || row.transcript_raw.trim() === '') {
+                try {
+                    console.log(`[DNA] 자막 수집 시작: ${row.title} (${row.video_id})`);
+                    const transcriptText = await fetchTranscript(row.video_id);
+                    if (transcriptText && transcriptText.length > 0) {
+                        runSQL('UPDATE videos SET transcript_raw = ?, has_transcript = 1 WHERE id = ?',
+                            [transcriptText.substring(0, 100000), row.id]);
+                        row.transcript_raw = transcriptText.substring(0, 100000);
+                        newlyCollected.add(row.id);
+                        console.log(`[DNA] 자막 수집 완료: ${row.title} (${transcriptText.length}자)`);
+                    } else {
+                        console.log(`[DNA] 자막 없음: ${row.title}`);
+                    }
+                } catch (err) {
+                    console.error(`[DNA] 자막 수집 실패: ${row.title}`, err.message);
+                }
+            }
+        }
+
+        // 4-1. 자막 있는 영상만 필터링
         const videosWithTranscript = rows.filter(r => r.transcript_raw && r.transcript_raw.trim().length > 0);
         if (videosWithTranscript.length === 0) {
-            return res.status(400).json({ error: '선택한 영상에 자막 데이터가 없습니다.' });
+            return res.status(400).json({ error: '선택한 영상에서 자막을 가져올 수 없습니다. 다른 영상을 선택해주세요.' });
+        }
+
+        // 4-2. 자막 합산 100,000자 초과 시 1개만 사용
+        const totalChars = videosWithTranscript.reduce((sum, r) => sum + (r.transcript_raw?.length || 0), 0);
+        if (totalChars > 100000) {
+            videosWithTranscript.splice(1);
+            console.log(`[DNA] 자막 합산 ${totalChars}자 초과 — 1개 영상만 분석`);
         }
 
         const videosArray = videosWithTranscript.map(r => ({
@@ -1652,18 +1681,23 @@ router.post('/gaps/extract-dna', async (req, res) => {
         );
 
         // 7. 응답
-        const sourceVideos = rows.map(r => ({
+        const skippedVideos = rows
+            .filter(r => !videosWithTranscript.find(v => v.id === r.id))
+            .map(r => ({ id: r.id, title: r.title }));
+
+        const sourceVideos = videosWithTranscript.map(r => ({
             id: r.id,
             videoId: r.video_id,
             title: r.title,
             viewCount: r.view_count,
             channelName: r.channel_name,
             subscriberCount: r.subscriber_count,
-            transcriptLength: r.transcript_length || 0,
-            youtubeChannelId: r.youtube_channel_id
+            transcriptLength: r.transcript_raw?.length || 0,
+            youtubeChannelId: r.youtube_channel_id,
+            transcriptCollected: newlyCollected.has(r.id)
         }));
 
-        res.json({ dna, sourceVideos, isNewExtraction: true, category: category || '야담' });
+        res.json({ dna, sourceVideos, skippedVideos, isNewExtraction: true, category: category || '야담' });
     } catch (err) {
         console.error('[extractDna] 오류:', err.message);
         res.status(500).json({ error: err.message });

@@ -2653,7 +2653,7 @@ function renderDnaContent(dnaObj) {
 
 // ── DNA 결과 2차 모달 ─────────────────────────────────────────────────────────
 function showDnaResultModal(dnaResponse, catX, catY, isYadam, meta, deepArea, api, spikeVideos) {
-  const { dna, sourceVideos = [], isNewExtraction } = dnaResponse;
+  const { dna, sourceVideos = [], skippedVideos = [], isNewExtraction } = dnaResponse;
   const container = deepArea.querySelector('.chart-container');
   if (!container) return;
 
@@ -2667,6 +2667,7 @@ function showDnaResultModal(dnaResponse, catX, catY, isYadam, meta, deepArea, ap
       </div>
       <div class="dna-source-meta">
         ${v.channelName} | 조회수 ${fmtN(v.viewCount)}회 | 구독자 ${fmtN(v.subscriberCount)}명 | 자막 ${fmtN(v.transcriptLength)}자
+        ${v.transcriptCollected ? '<span style="color:var(--accent-light);font-size:0.8em;">(신규 수집)</span>' : '<span style="color:var(--text-muted);font-size:0.8em;">(기존 저장)</span>'}
       </div>
     </div>
   `).join('');
@@ -2699,6 +2700,11 @@ function showDnaResultModal(dnaResponse, catX, catY, isYadam, meta, deepArea, ap
       <div class="dna-source-videos">
         <h4 class="dna-section-title">📌 분석 대상 영상</h4>
         ${sourceVideosHtml}
+        ${skippedVideos.length > 0 ? skippedVideos.map(v => `
+          <div style="margin-top:8px; padding:8px 12px; background:rgba(239,68,68,0.07); border:1px solid rgba(239,68,68,0.2); border-radius:8px; font-size:0.85rem; color:#f87171;">
+            ⚠️ <strong>${v.title}</strong>은 자막을 가져올 수 없어 분석에서 제외되었습니다.
+          </div>
+        `).join('') : ''}
       </div>
 
       <div class="dna-cards">${dnaCards}</div>
@@ -3063,6 +3069,13 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
     return Number(n).toLocaleString('ko-KR');
   }
 
+  function formatDuration(seconds) {
+    if (!seconds) return '알 수 없음';
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return m + '분' + (s > 0 ? ' ' + s + '초' : '');
+  }
+
   // 로딩 UI
   deepArea.innerHTML = `
     <div class="chart-container mb-24 animation-fade-in" style="border:2px solid var(--accent); background:var(--accent-glow); padding:32px; text-align:center;">
@@ -3097,18 +3110,16 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
     }
 
     const videoItemsHtml = spikeVideos.map((v, idx) => {
-      const noTranscript = !v.hasTranscript || v.transcriptLength === 0;
       return `
-        <div class="spike-video-item" data-video-id="${v.id}" data-transcript-length="${v.transcriptLength}">
+        <div class="spike-video-item" data-video-id="${v.id}">
           <label class="spike-video-checkbox-area">
-            <input type="checkbox" class="spike-video-checkbox" ${noTranscript ? 'disabled' : ''}>
+            <input type="checkbox" class="spike-video-checkbox">
             <span class="spike-video-rank">#${idx + 1}</span>
           </label>
           <div class="spike-video-info">
             <div class="spike-video-title-row">
               <a href="https://www.youtube.com/watch?v=${v.videoId}" target="_blank" class="spike-video-title-link">${v.title}</a>
               ${v.hasDna ? '<span class="spike-dna-badge">DNA 추출 완료</span>' : ''}
-              ${noTranscript ? '<span class="spike-no-transcript">자막 없음</span>' : ''}
             </div>
             <div class="spike-video-meta">
               <span class="spike-meta-channel">${v.channelName}</span>
@@ -3120,7 +3131,7 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
             <div class="spike-video-stats">
               <span class="spike-stat spike-stat-ratio">떡상비율 <strong>${v.spikeRatio}배</strong></span>
               <span class="spike-stat spike-stat-avg">채널평균대비 <strong>${v.channelAvgMultiple}배</strong></span>
-              <span class="spike-stat spike-stat-transcript">자막 <strong>${fmt(v.transcriptLength)}자</strong></span>
+              <span class="spike-stat spike-stat-transcript">영상 길이 <strong>${formatDuration(v.durationSeconds)}</strong></span>
             </div>
           </div>
         </div>
@@ -3142,7 +3153,7 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
         </div>
 
         <div class="spike-modal-char-count" id="spike-char-counter">
-          선택된 자막: 0자 / 50,000자
+          선택된 영상: 0개 / 최대 2개
         </div>
 
         <div class="spike-video-list" id="spike-video-list">
@@ -3166,35 +3177,8 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
     list.addEventListener('change', (e) => {
       if (!e.target.classList.contains('spike-video-checkbox')) return;
 
-      const allCheckboxes = list.querySelectorAll('.spike-video-checkbox:not([disabled])');
-      const checked = list.querySelectorAll('.spike-video-checkbox:checked');
-      const checkedCount = checked.length;
-
-      // 자막 합산
-      let totalChars = 0;
-      checked.forEach(cb => {
-        const item = cb.closest('.spike-video-item');
-        totalChars += parseInt(item.dataset.transcriptLength || 0, 10);
-      });
-
-      // 50,000자 초과 & 2개 이상 선택 시 마지막 체크 해제
-      if (totalChars > 50000 && checkedCount >= 2) {
-        e.target.checked = false;
-        alert('자막이 50,000자를 초과하여 1개만 선택 가능합니다.');
-        // 재계산
-        const rechk = list.querySelectorAll('.spike-video-checkbox:checked');
-        totalChars = 0;
-        rechk.forEach(cb => {
-          const item = cb.closest('.spike-video-item');
-          totalChars += parseInt(item.dataset.transcriptLength || 0, 10);
-        });
-        charCounter.textContent = `선택된 자막: ${fmt(totalChars)}자 / 50,000자`;
-        charCounter.classList.toggle('over-limit', totalChars > 50000);
-        return;
-      }
-
-      charCounter.textContent = `선택된 자막: ${fmt(totalChars)}자 / 50,000자`;
-      charCounter.classList.toggle('over-limit', totalChars > 50000);
+      const allCheckboxes = list.querySelectorAll('.spike-video-checkbox');
+      const checkedCount = list.querySelectorAll('.spike-video-checkbox:checked').length;
 
       // 선택 항목 스타일
       list.querySelectorAll('.spike-video-item').forEach(item => {
@@ -3207,18 +3191,18 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
       });
 
       // 2개 선택 시 나머지 disabled
-      const finalChecked = list.querySelectorAll('.spike-video-checkbox:checked');
-      const finalCount = finalChecked.length;
       allCheckboxes.forEach(cb => {
         if (!cb.checked) {
-          cb.disabled = finalCount >= 2;
-          cb.closest('.spike-video-item').classList.toggle('disabled-item', finalCount >= 2);
+          cb.disabled = checkedCount >= 2;
+          cb.closest('.spike-video-item').classList.toggle('disabled-item', checkedCount >= 2);
         }
       });
 
+      charCounter.textContent = `선택된 영상: ${checkedCount}개 / 최대 2개`;
+
       // 분석 버튼 상태
-      analyzeBtn.disabled = finalCount === 0;
-      analyzeBtn.textContent = `DNA 분석 시작 (${finalCount}개 선택)`;
+      analyzeBtn.disabled = checkedCount === 0;
+      analyzeBtn.textContent = `DNA 분석 시작 (${checkedCount}개 선택)`;
     });
 
     // ── DNA 분석 시작 버튼 ────────────────────────────────────────────
