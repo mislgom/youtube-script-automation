@@ -287,7 +287,7 @@ export function buildCombinedNicheRanking() {
   `);
 
   return topCombinations.map(combo => ({
-    label: `${combo.era} / ${combo.event} / ${combo.source}`,
+    label: `${combo.era} / ${combo.event.replace(/\//g, '·')} / ${combo.source}`,
     count: combo.count,
     era: combo.era,
     event: combo.event,
