@@ -98,20 +98,24 @@ export async function renderGaps(container, { api }) {
       }
     });
 
+    const subClassifyCard = document.getElementById('sub-classify-card');
     [yadamCard, yadamCont, economyCont, customCont].forEach(c => c && c.classList.add('hidden'));
 
     if (mode === 'yadam') {
       yadamCard.classList.remove('hidden');
       yadamCont.classList.remove('hidden');
+      if (subClassifyCard) subClassifyCard.classList.remove('hidden');
       // 결과가 없는 경우에만 자동 실행 (무한 루프 방지 및 사용자 UX)
       const s = getStoredState();
       if (!s.yadamData && s.yadamStatus !== 'LOADING') {
         runYadamAnalysis();
       }
     } else if (mode === 'economy') {
+      if (subClassifyCard) subClassifyCard.classList.add('hidden');
       economyCont.classList.remove('hidden');
       runEconomyAnalysis(); // 탭 전환 시 즉시 엔진 기동
     } else if (mode === 'custom') {
+      if (subClassifyCard) subClassifyCard.classList.add('hidden');
       customCont.classList.remove('hidden');
     }
   };
