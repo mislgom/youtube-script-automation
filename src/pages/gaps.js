@@ -403,7 +403,7 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
       ${topCombinedHtml}
       <div class="two-col">
         <div class="chart-container" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:24px; box-sizing:border-box; overflow-y:auto;">
-          <h4>📊 세부 카테고리 분포</h4>
+          <h4 style="text-align:center; color:#ffffff; font-size:1.1rem; margin:0 0 12px 0;">세부 카테고리 분포</h4>
           <div class="compact-view">
             <p style="color:var(--text-muted); text-align:center; padding:40px 0; font-size:0.85rem;">
               수퍼니치 카드를 클릭하면 세부 분포가 표시됩니다.
@@ -436,7 +436,10 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
         const detail = await api.getYadamDetailGrid({ eraId, eventId, sourceId });
 
         const hasGroups = detail.groups && detail.groups.length > 0;
-        headerTitle.innerHTML = `📊 [${label}] 세부 카테고리 분포 (${detail.totalVideos || 0}개 영상 기준)`;
+        headerTitle.style.textAlign = 'center';
+        headerTitle.style.color = '#ffffff';
+        headerTitle.style.fontSize = '1.1rem';
+        headerTitle.innerHTML = `[${label}] 세부 카테고리 분포 (${detail.totalVideos || 0}개 영상 기준)`;
 
         if (!hasGroups) {
           compactView.innerHTML = `
