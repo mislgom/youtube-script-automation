@@ -33,10 +33,9 @@ export async function renderGaps(container, { api }) {
     <div class="card mb-24 hidden" id="yadam-info-card" style="background:var(--accent-glow); border:2px solid var(--accent); position:relative;">
       <div class="flex-between" style="align-items:center;">
         <div>
-          <h4 style="margin:0 0 8px 0; color:var(--accent); font-weight:800; font-size:1.1rem;">🏮 야담 전용 분석기</h4>
-          <p style="margin:0; color:var(--text-secondary); line-height:1.6;">
-            현재까지 수집된 <span id="yadam-total-count" style="color:var(--accent); font-weight:900; font-size:1.35rem;">—</span>개의 영상을 분석하여<br>
-            각 소재별 포화도 데이터를 보여드립니다.
+          <h4 style="margin:0 0 8px 0; color:#ffffff; font-weight:800; font-size:1.25rem;">🏮 야담 전용 분석기</h4>
+          <p style="margin:0; color:#ffffff; font-size:1.2rem; line-height:1.5;">
+            현재까지 수집된 <span id="yadam-total-count" style="color:#facc15; font-weight:900; font-size:1.35rem;">—</span>개의 영상을 분석하여 각 소재별 포화도 데이터를 보여드립니다.
           </p>
         </div>
         <button class="btn btn-primary" id="yadam-analyze-btn" style="min-width:140px; font-weight:800;">야담 분석 실행</button>
