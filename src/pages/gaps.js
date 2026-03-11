@@ -188,6 +188,7 @@ export async function renderGaps(container, { api }) {
 
       updateStoredState({ yadamStatus: 'SUCCESS', yadamData: data });
       renderGapResults(data, '사건유형', '선택 카테고리', api, yadamCont);
+      restoreDnaAnalysisState(api);
     } catch (err) {
       updateStoredState({ yadamStatus: 'IDLE' });
       yadamCont.innerHTML = `<div class="empty-state"><div class="icon">❌</div><p>${err.message}</p></div>`;
@@ -2617,13 +2618,67 @@ window.downloadThemeSkeleton = (btn, title) => {
 
 // ── 떡상 영상 선택 모달 (1차) ─────────────────────────────────────────────────
 // ── DNA 콘텐츠 렌더링 헬퍼 ──────────────────────────────────────────────────
+function restoreDnaAnalysisState(api) {
+  try {
+    const saved = localStorage.getItem('dnaAnalysisState');
+    if (!saved) return;
+    const state = JSON.parse(saved);
+    if (Date.now() - state.timestamp > 86400000) {
+      localStorage.removeItem('dnaAnalysisState');
+      return;
+    }
+    const deepArea = document.querySelector('.deep-analysis-area-scoped');
+    if (!deepArea) return;
+    if (state.stage === 'topic' && state.suggestResponse && state.dnaResponse) {
+      showTopicResultModal(
+        state.suggestResponse, state.dnaResponse,
+        state.catX, state.catY, state.isYadam, state.meta,
+        deepArea, api, state.spikeVideos
+      );
+    } else if (state.stage === 'dna' && state.dnaResponse) {
+      showDnaResultModal(
+        state.dnaResponse,
+        state.catX, state.catY, state.isYadam, state.meta,
+        deepArea, api, state.spikeVideos
+      );
+    }
+  } catch(e) {
+    localStorage.removeItem('dnaAnalysisState');
+  }
+}
+
+const DNA_LABELS = {
+  hook_type: '훅 유형', opening_style: '오프닝 스타일', first_sentence: '첫 문장',
+  first_sentence_pattern: '첫 문장 패턴', hook_technique: '훅 기법', attention_grabber: '주의 집중 요소',
+  open_loop: '열린 루프', curiosity_trigger: '호기심 유발', question_type: '질문 유형',
+  structure_type: '구조 유형', intro_ratio: '도입부 비중', development_ratio: '전개부 비중',
+  crisis_ratio: '위기 비중', climax_ratio: '절정 비중', resolution_ratio: '결말 비중',
+  twist_exists: '반전 유무', twist_position: '반전 위치', narrative_style: '서술 스타일',
+  story_arc: '스토리 아크', emotion_flow: '감정 흐름', peak_emotion: '최고 감정',
+  peak_position: '감정 최고점 위치', tension_curve: '긴장 곡선', emotional_range: '감정 범위',
+  relief_point: '이완 지점', avg_sentence_length: '평균 문장 길이', question_frequency: '질문 빈도',
+  repetition_keywords: '반복 키워드', repetition_pattern: '반복 패턴', pacing: '호흡 속도',
+  pause_technique: '일시정지 기법', title_pattern: '제목 패턴', title_length: '제목 길이',
+  cta_words: 'CTA 단어', click_trigger: '클릭 유발 요소', loss_aversion: '손실회피 표현',
+  curiosity_gap: '호기심 갭', number_usage: '숫자 활용', type: '유형', pattern: '패턴',
+  style: '스타일', technique: '기법', description: '설명', example: '예시', examples: '예시 목록',
+  reason: '이유', effect: '효과', frequency: '빈도', ratio: '비율', position: '위치',
+  length: '길이', count: '개수', score: '점수', level: '수준', summary: '요약',
+  analysis: '분석', recommendation: '추천', keywords: '키워드', tags: '태그', notes: '비고',
+  name: '이름', value: '값', title: '제목', content: '내용', text: '텍스트', items: '항목',
+  list: '목록', details: '상세', characteristics: '특징', features: '특성', strengths: '강점',
+  weaknesses: '약점', tips: '팁', common_pattern: '공통 패턴', unique_pattern: '고유 패턴',
+  success_factor: '성공 요인', key_element: '핵심 요소', avg_length: '평균 길이',
+  min_length: '최소 길이', max_length: '최대 길이', word_count: '단어 수', char_count: '글자 수'
+};
+
 function renderDnaContent(dnaObj) {
   if (!dnaObj) return '<p style="color:var(--text-secondary);">데이터 없음</p>';
   if (typeof dnaObj === 'string') return '<p>' + dnaObj + '</p>';
 
   let html = '';
   for (const [key, value] of Object.entries(dnaObj)) {
-    const label = key.replace(/_/g, ' ');
+    const label = DNA_LABELS[key] || key.replace(/_/g, ' ');
     if (typeof value === 'string' || typeof value === 'number') {
       html += '<div class="dna-field">'
             + '<span class="dna-field-key">' + label + '</span>'
@@ -2635,7 +2690,7 @@ function renderDnaContent(dnaObj) {
             + '<ul class="dna-field-list">'
             + value.map(item => {
                 if (typeof item === 'object' && item !== null) {
-                  return '<li>' + Object.entries(item).map(([k, v]) => k.replace(/_/g, ' ') + ': ' + v).join(' | ') + '</li>';
+                  return '<li>' + Object.entries(item).map(([k, v]) => (DNA_LABELS[k] || k.replace(/_/g, ' ')) + ': ' + v).join(' | ') + '</li>';
                 }
                 return '<li>' + item + '</li>';
               }).join('')
@@ -2716,8 +2771,19 @@ function showDnaResultModal(dnaResponse, catX, catY, isYadam, meta, deepArea, ap
     </div>
   `;
 
+  try {
+    localStorage.setItem('dnaAnalysisState', JSON.stringify({
+      stage: 'dna',
+      dnaResponse,
+      catX, catY, isYadam, meta,
+      spikeVideos,
+      timestamp: Date.now()
+    }));
+  } catch(e) {}
+
   document.getElementById('dna-save-close-btn').addEventListener('click', () => {
     window.__activeDeepAnalysis = null;
+    localStorage.removeItem('dnaAnalysisState');
     deepArea.querySelector('.chart-container')?.remove();
   });
 
@@ -2840,8 +2906,20 @@ function showTopicResultModal(suggestResponse, dnaResponse, catX, catY, isYadam,
     </div>
   `;
 
+  try {
+    localStorage.setItem('dnaAnalysisState', JSON.stringify({
+      stage: 'topic',
+      suggestResponse,
+      dnaResponse,
+      catX, catY, isYadam, meta,
+      spikeVideos,
+      timestamp: Date.now()
+    }));
+  } catch(e) {}
+
   container.querySelector('.topic-close-btn').addEventListener('click', () => {
     window.__activeDeepAnalysis = null;
+    localStorage.removeItem('dnaAnalysisState');
     deepArea.querySelector('.chart-container')?.remove();
   });
 
@@ -3099,7 +3177,7 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
             <p style="color:var(--text-secondary); font-size:0.9rem;">
               [${catY} × ${catX}] 카테고리에서 떡상 조건(구독자 대비 조회수 + 채널 평균 3배 이상)을 충족하는 영상이 없습니다.
             </p>
-            <button onclick="window.__activeDeepAnalysis = null; this.closest('.chart-container').remove()"
+            <button onclick="window.__activeDeepAnalysis = null; localStorage.removeItem('dnaAnalysisState'); this.closest('.chart-container').remove()"
               style="margin-top:16px; padding:8px 20px; border-radius:10px; border:1px solid var(--border); background:var(--bg-secondary); cursor:pointer; color:var(--text-primary);">
               닫기
             </button>
@@ -3161,13 +3239,22 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
         </div>
 
         <div class="spike-modal-actions">
-          <button class="spike-btn-close" onclick="window.__activeDeepAnalysis = null; this.closest('.chart-container').remove()">닫기</button>
+          <button class="spike-btn-close" onclick="window.__activeDeepAnalysis = null; localStorage.removeItem('dnaAnalysisState'); this.closest('.chart-container').remove()">닫기</button>
           <button class="spike-btn-analyze" id="spike-analyze-btn" disabled>
             DNA 분석 시작 (0개 선택)
           </button>
         </div>
       </div>
     `;
+
+    try {
+      localStorage.setItem('dnaAnalysisState', JSON.stringify({
+        stage: 'spike',
+        catX, catY, isYadam, meta,
+        spikeVideos,
+        timestamp: Date.now()
+      }));
+    } catch(e) {}
 
     // ── 체크박스 이벤트 바인딩 ──────────────────────────────────────────
     const list = deepArea.querySelector('#spike-video-list');
@@ -3244,7 +3331,7 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
             <h3 style="font-size:1.05rem; font-weight:700; margin-bottom:8px;">DNA 추출에 실패했습니다</h3>
             <p style="color:var(--text-secondary); font-size:0.85rem; margin-bottom:16px;">${err.message}</p>
             <button class="spike-btn-close"
-              onclick="window.__activeDeepAnalysis = null; this.closest('.chart-container').remove()">
+              onclick="window.__activeDeepAnalysis = null; localStorage.removeItem('dnaAnalysisState'); this.closest('.chart-container').remove()">
               닫기
             </button>
           </div>
@@ -3259,7 +3346,7 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
         <div style="padding:24px; text-align:center;">
           <div style="color:var(--danger); font-weight:700; margin-bottom:8px;">❌ 떡상 영상 조회 실패</div>
           <div style="font-size:0.85rem; color:var(--text-secondary);">${err.message}</div>
-          <button onclick="window.__activeDeepAnalysis = null; this.closest('.chart-container').remove()"
+          <button onclick="window.__activeDeepAnalysis = null; localStorage.removeItem('dnaAnalysisState'); this.closest('.chart-container').remove()"
             style="margin-top:16px; padding:8px 20px; border-radius:10px; border:1px solid var(--border); background:var(--bg-secondary); cursor:pointer; color:var(--text-primary);">
             닫기
           </button>

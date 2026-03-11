@@ -443,6 +443,7 @@ input[type="text"],
 input[type="url"],
 input[type="search"],
 input[type="number"],
+input[type="password"],
 textarea,
 select {
   width: 100%;
@@ -1508,10 +1509,10 @@ select {
   align-items: flex-start;
   gap: 8px;
   padding: 12px 16px;
-  background: var(--bg-tertiary, rgba(255,255,255,0.04));
+  background: var(--bg-card, rgba(255,255,255,0.04));
   border-radius: 10px;
   font-size: 0.85rem;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   margin-bottom: 12px;
 }
 
@@ -1553,7 +1554,7 @@ select {
 
 .spike-video-item:hover {
   border-color: var(--accent);
-  box-shadow: 0 2px 8px rgba(108, 92, 231, 0.08);
+  box-shadow: 0 2px 8px rgba(124, 92, 255, 0.15);
 }
 
 .spike-video-item.selected {
@@ -1688,8 +1689,8 @@ select {
 }
 
 .spike-stat-transcript {
-  background: rgba(99, 102, 241, 0.12);
-  color: #a5b4fc;
+  background: rgba(124, 92, 255, 0.12);
+  color: var(--accent-light, #9d85ff);
 }
 
 .spike-modal-actions {
@@ -1762,7 +1763,7 @@ select {
 .dna-source-videos {
   margin-bottom: 20px;
   padding: 16px;
-  background: var(--bg-tertiary, #f8f7ff);
+  background: var(--bg-card, rgba(255,255,255,0.04));
   border-radius: 12px;
 }
 
@@ -1800,15 +1801,15 @@ select {
 
 .dna-source-title a:hover {
   text-decoration: underline;
-  color: var(--primary, #6c5ce7);
+  color: var(--accent-light, #9d85ff);
 }
 
 .dna-new-badge {
   font-size: 0.68rem;
   padding: 2px 7px;
   border-radius: 6px;
-  background: #fff3e0;
-  color: #e65100;
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--warning, #fbbf24);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -1817,8 +1818,8 @@ select {
   font-size: 0.68rem;
   padding: 2px 7px;
   border-radius: 6px;
-  background: #e8f5e9;
-  color: #2e7d32;
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--success, #34d399);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -1840,6 +1841,7 @@ select {
   border-radius: 12px;
   overflow: hidden;
   background: var(--bg-secondary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
 .dna-card-header {
@@ -1847,7 +1849,7 @@ select {
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-  background: var(--bg-tertiary, #f8f7ff);
+  background: rgba(124, 92, 255, 0.06);
   border-bottom: 1px solid var(--border);
 }
 
@@ -1878,7 +1880,7 @@ select {
 .dna-field-key {
   flex-shrink: 0;
   font-weight: 700;
-  color: var(--primary, #6c5ce7);
+  color: var(--accent-light, #9d85ff);
   font-size: 0.8rem;
   min-width: 100px;
 }
@@ -1900,13 +1902,14 @@ select {
   font-size: 0.82rem;
   position: relative;
   padding-left: 14px;
+  color: var(--text-primary);
 }
 
 .dna-field-list li::before {
   content: '•';
   position: absolute;
   left: 0;
-  color: var(--primary, #6c5ce7);
+  color: var(--accent-light, #9d85ff);
   font-weight: 700;
 }
 
@@ -1923,7 +1926,7 @@ select {
   width: 36px;
   height: 36px;
   border: 3px solid var(--border);
-  border-top-color: var(--primary, #6c5ce7);
+  border-top-color: var(--accent, #7c5cff);
   border-radius: 50%;
   animation: spike-spin 0.8s linear infinite;
   margin: 0 auto;
@@ -1979,6 +1982,7 @@ select {
   overflow: hidden;
   transition: box-shadow 0.2s;
   cursor: pointer;
+  color: var(--text-primary);
 }
 
 .topic-suggestion-item:hover {
@@ -1986,7 +1990,7 @@ select {
 }
 
 .topic-suggestion-item.expanded {
-  border-color: var(--primary, #6c5ce7);
+  border-color: var(--accent, #7c5cff);
 }
 
 .topic-suggestion-rank {
@@ -1995,7 +1999,7 @@ select {
   justify-content: center;
   width: 22px;
   height: 22px;
-  background: var(--primary, #6c5ce7);
+  background: var(--accent, #7c5cff);
   color: #fff;
   border-radius: 50%;
   font-size: 11px;
@@ -2042,7 +2046,7 @@ select {
 
 .topic-gap-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--primary, #6c5ce7), #a29bfe);
+  background: linear-gradient(90deg, var(--accent, #7c5cff), var(--accent-light, #9d85ff));
   border-radius: 3px;
   transition: width 0.4s ease;
 }
@@ -2050,7 +2054,7 @@ select {
 .topic-gap-value {
   font-size: 11px;
   font-weight: 700;
-  color: var(--primary, #6c5ce7);
+  color: var(--accent-light, #9d85ff);
   width: 32px;
   text-align: right;
 }
@@ -2064,8 +2068,8 @@ select {
 .topic-keyword-tag {
   font-size: 11px;
   padding: 2px 8px;
-  background: rgba(108, 92, 231, 0.1);
-  color: var(--primary, #6c5ce7);
+  background: rgba(124, 92, 255, 0.1);
+  color: var(--text-secondary);
   border-radius: 10px;
   white-space: nowrap;
 }
@@ -2092,7 +2096,7 @@ select {
   display: none;
   border-top: 1px solid var(--border);
   padding: 14px;
-  background: var(--bg-primary, #fff);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .topic-suggestion-item.expanded .topic-expand-area {
@@ -2107,8 +2111,8 @@ select {
 
 .topic-dna-summary {
   font-size: 12px;
-  color: var(--text-secondary, #555);
-  background: var(--bg-secondary, #f8f9fa);
+  color: var(--success, #34d399);
+  background: rgba(52, 211, 153, 0.12);
   border-radius: 6px;
   padding: 8px 10px;
   line-height: 1.6;
@@ -2116,7 +2120,7 @@ select {
 
 .topic-title-gen-btn {
   padding: 8px 16px;
-  background: var(--primary, #6c5ce7);
+  background: var(--accent, #7c5cff);
   color: #fff;
   border: none;
   border-radius: 6px;
@@ -2157,21 +2161,22 @@ select {
   border-radius: 8px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
+  color: var(--text-primary);
 }
 
 .topic-title-radio-item:hover {
-  border-color: var(--primary, #6c5ce7);
-  background: rgba(108, 92, 231, 0.04);
+  border-color: var(--accent, #7c5cff);
+  background: rgba(124, 92, 255, 0.04);
 }
 
 .topic-title-radio-item.selected {
-  border-color: var(--primary, #6c5ce7);
-  background: rgba(108, 92, 231, 0.08);
+  border-color: var(--accent, #7c5cff);
+  background: rgba(124, 92, 255, 0.08);
 }
 
 .topic-title-radio-item input[type="radio"] {
   margin-top: 2px;
-  accent-color: var(--primary, #6c5ce7);
+  accent-color: var(--accent, #7c5cff);
   flex-shrink: 0;
 }
 
@@ -2190,8 +2195,11 @@ select {
 
 .topic-title-score {
   font-size: 11px;
-  color: var(--primary, #6c5ce7);
+  color: var(--warning, #fbbf24);
   font-weight: 700;
+  background: rgba(251, 191, 36, 0.15);
+  padding: 1px 5px;
+  border-radius: 4px;
 }
 
 .topic-title-reason {
@@ -2202,7 +2210,7 @@ select {
 
 .topic-skeleton-btn {
   padding: 8px 16px;
-  background: #00b894;
+  background: var(--accent, #7c5cff);
   color: #fff;
   border: none;
   border-radius: 6px;
@@ -2245,6 +2253,7 @@ select {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  color: var(--text-primary);
 }
 
 .topic-skeleton-title {
@@ -2262,8 +2271,9 @@ select {
 }
 
 .topic-skeleton-section {
-  background: var(--bg-primary, #fff);
+  background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--border);
+  border-left: 3px solid var(--accent, #7c5cff);
   border-radius: 8px;
   padding: 10px 12px;
   display: flex;
@@ -2274,7 +2284,7 @@ select {
 .topic-skeleton-section-name {
   font-size: 12px;
   font-weight: 700;
-  color: var(--primary, #6c5ce7);
+  color: var(--accent-light, #9d85ff);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -2284,8 +2294,26 @@ select {
 .topic-skeleton-climax,
 .topic-skeleton-ending {
   font-size: 12px;
-  color: var(--text-secondary, #555);
+  color: var(--text-secondary);
   line-height: 1.5;
+}
+
+.topic-skeleton-hook {
+  color: var(--warning, #fbbf24);
+}
+
+.topic-skeleton-climax {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--danger, #f87171);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+
+.topic-skeleton-ending {
+  background: rgba(124, 92, 255, 0.12);
+  color: var(--accent-light, #9d85ff);
+  border-radius: 4px;
+  padding: 3px 6px;
 }
 
 .topic-skeleton-actions {
@@ -2312,8 +2340,8 @@ select {
 
 .topic-skeleton-download-btn {
   padding: 6px 12px;
-  background: #0984e3;
-  color: #fff;
+  background: var(--success, #34d399);
+  color: #0a0a16;
   border: none;
   border-radius: 6px;
   font-size: 12px;
@@ -2349,7 +2377,7 @@ select {
 
 .topic-evidence-link {
   font-size: 12px;
-  color: var(--primary, #6c5ce7);
+  color: var(--accent-light, #9d85ff);
   text-decoration: none;
   display: inline-block;
   max-width: 100%;

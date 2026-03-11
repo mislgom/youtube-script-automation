@@ -160,7 +160,6 @@ db.exec(`CREATE TABLE IF NOT EXISTS video_sub_categories (
   FOREIGN KEY(sub_category_id) REFERENCES sub_categories(id)
 )`);
 
-db.exec(`DROP TABLE IF EXISTS video_dna`);
 db.exec(`CREATE TABLE IF NOT EXISTS video_dna (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   video_ids TEXT NOT NULL,
