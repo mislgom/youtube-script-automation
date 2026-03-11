@@ -12,9 +12,11 @@ export async function renderSettings(container, { api }) {
         <!-- API Keys -->
         <div class="card mb-24">
           <h3 style="margin-bottom:20px; font-weight:900; font-size:1.5rem;">🔑 API 키</h3>
-          <div id="key-yt" class="input-group"></div>
-          <div id="key-cloud-run" class="input-group"></div>
-          <div id="key-gemini" class="input-group"></div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div id="key-yt"></div>
+            <div id="key-cloud-run"></div>
+            <div id="key-gemini"></div>
+          </div>
 
           <!-- Vertex Fields (Hidden by default) -->
           <div id="vertex-fields" style="display:none; margin-top:20px; padding:15px; background:rgba(var(--accent-rgb), 0.05); border:1px solid var(--accent-light); border-radius:12px;">
@@ -98,20 +100,33 @@ export async function renderSettings(container, { api }) {
   `;
 
   // ── 키 필드 렌더 헬퍼 ──────────────────────────────────────
-  // isSet: 저장된 값 있음 / maskedValue: ***xxxx 형태 / isPassword: 입력 타입
   function renderKeyField({ containerId, label, isSet, maskedValue, placeholder, isPassword = true, onSave, onClear }) {
     const wrap = document.getElementById(containerId);
     if (!wrap) return;
+    wrap.style.cssText = 'margin-bottom:0;';
 
     const showDisplay = () => {
+      const dot = isSet
+        ? `<span style="width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e88;flex-shrink:0;display:inline-block;"></span>`
+        : `<span style="width:8px;height:8px;border-radius:50%;background:var(--text-muted);flex-shrink:0;display:inline-block;"></span>`;
       wrap.innerHTML = `
-        <label style="font-size:1.1rem; font-weight:800; margin-bottom:8px; display:block;">${label}</label>
-        <div style="display:flex; align-items:center; gap:10px;">
-          <span style="flex:1; padding:10px 14px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:8px; font-family:monospace; font-size:0.95rem; color:var(--text-muted);">${maskedValue}</span>
-          <button class="btn btn-secondary" style="white-space:nowrap;" id="${containerId}-edit-btn">✏️ 수정</button>
-          ${onClear ? `<button class="btn btn-secondary" style="white-space:nowrap; color:#ef4444; border-color:#ef4444;" id="${containerId}-clear-btn">삭제</button>` : ''}
+        <div id="${containerId}-row" style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:12px;cursor:default;transition:border-color 0.2s;">
+          <div style="display:flex;align-items:center;gap:12px;min-width:0;flex:1;">
+            ${dot}
+            <div style="min-width:0;">
+              <div style="font-size:0.8rem;font-weight:700;color:var(--text-secondary);margin-bottom:4px;letter-spacing:0.06em;text-transform:uppercase;">${label}</div>
+              <div style="font-family:monospace;font-size:0.95rem;color:${isSet ? 'var(--text-primary)' : 'var(--text-muted)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px;">${maskedValue}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-shrink:0;margin-left:16px;">
+            <button id="${containerId}-edit-btn" style="padding:8px 18px;border-radius:8px;background:rgba(124,92,255,0.1);border:1px solid rgba(124,92,255,0.25);color:var(--accent-light);font-size:0.88rem;font-weight:700;cursor:pointer;transition:all 0.2s;white-space:nowrap;">수정</button>
+            ${onClear ? `<button id="${containerId}-clear-btn" style="padding:8px 14px;border-radius:8px;background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);color:#f87171;font-size:0.88rem;font-weight:700;cursor:pointer;white-space:nowrap;">삭제</button>` : ''}
+          </div>
         </div>
       `;
+      const row = wrap.querySelector(`#${containerId}-row`);
+      row.addEventListener('mouseenter', () => row.style.borderColor = 'rgba(124,92,255,0.3)');
+      row.addEventListener('mouseleave', () => row.style.borderColor = 'var(--border)');
       wrap.querySelector(`#${containerId}-edit-btn`).addEventListener('click', showEdit);
       if (onClear) wrap.querySelector(`#${containerId}-clear-btn`).addEventListener('click', async () => {
         await onClear(); showDisplay();
@@ -120,13 +135,16 @@ export async function renderSettings(container, { api }) {
 
     const showEdit = () => {
       wrap.innerHTML = `
-        <label style="font-size:1.1rem; font-weight:800; margin-bottom:8px; display:block;">${label}</label>
-        <div style="display:flex; align-items:center; gap:10px;">
-          <input type="${isPassword ? 'password' : 'text'}" id="${containerId}-input" placeholder="${placeholder}" style="flex:1;">
-          <button class="btn btn-primary" style="white-space:nowrap;" id="${containerId}-save-btn">저장</button>
-          ${isSet ? `<button class="btn btn-secondary" style="white-space:nowrap;" id="${containerId}-cancel-btn">취소</button>` : ''}
+        <div style="padding:20px;background:rgba(124,92,255,0.06);border:1px solid rgba(124,92,255,0.3);border-radius:12px;">
+          <div style="font-size:0.8rem;font-weight:700;color:var(--accent-light);margin-bottom:12px;letter-spacing:0.06em;text-transform:uppercase;">${label}</div>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <input type="${isPassword ? 'password' : 'text'}" id="${containerId}-input" placeholder="${placeholder}" style="flex:1;margin:0;">
+            <button id="${containerId}-save-btn" style="padding:13px 24px;border-radius:10px;background:var(--accent);border:none;color:#fff;font-size:0.95rem;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:opacity 0.2s;">저장</button>
+            ${isSet ? `<button id="${containerId}-cancel-btn" style="padding:13px 16px;border-radius:10px;background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--text-secondary);font-size:0.95rem;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">취소</button>` : ''}
+          </div>
         </div>
       `;
+      wrap.querySelector(`#${containerId}-input`).focus();
       wrap.querySelector(`#${containerId}-save-btn`).addEventListener('click', async () => {
         const val = wrap.querySelector(`#${containerId}-input`).value.trim();
         if (!val) { showToast('값을 입력해주세요.', 'warning'); return; }
@@ -160,18 +178,17 @@ export async function renderSettings(container, { api }) {
 
     renderKeyField({
       containerId: 'key-cloud-run',
-      label: 'Cloud Run URL (Gemini 프록시)',
+      label: '구글 클라우드',
       isSet: !!(settings.cloud_run_url),
       maskedValue: settings.cloud_run_url || '미설정',
       placeholder: 'https://gemini-proxy-xxxxx.us-central1.run.app',
       isPassword: false,
       onSave: (val) => api.updateSettings({ cloud_run_url: val }),
-      onClear: async () => { await api.updateSettings({ cloud_run_url: '' }); showToast('삭제되었습니다.', 'info'); },
     });
 
     renderKeyField({
       containerId: 'key-gemini',
-      label: 'Gemini API 키 / Vertex 토큰',
+      label: 'Gemini API 키',
       isSet: !!settings.gemini_api_key_set,
       maskedValue: settings.gemini_api_key || '미설정',
       placeholder: 'Gemini API 키 또는 AQ.A... 토큰 입력',
