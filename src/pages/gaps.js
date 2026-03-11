@@ -224,7 +224,7 @@ export async function renderGaps(container, { api }) {
           subClassifyBtn.textContent = '✅ 모든 영상 분류 완료';
         } else {
           subClassifyBtn.disabled = false;
-          subClassifyBtn.textContent = '🤖 AI 자동 분류 (20건씩)';
+          subClassifyBtn.textContent = '🤖 AI 자동 분류 (100건씩)';
         }
       }
     } catch (e) {
@@ -269,7 +269,7 @@ export async function renderGaps(container, { api }) {
       subClassifyStatus.textContent = `❌ 오류: ${err.message}`;
       showToast('분류 실패: ' + err.message, 'error');
       subClassifyBtn.disabled = false;
-      subClassifyBtn.textContent = '🤖 AI 자동 분류 (20건씩)';
+      subClassifyBtn.textContent = '🤖 AI 자동 분류 (100건씩)';
     }
   });
 

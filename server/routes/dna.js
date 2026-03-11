@@ -407,7 +407,7 @@ router.get('/unclassified-count', (req, res) => {
 // ─────────────────────────────────────────────
 router.post('/batch-classify', async (req, res) => {
     try {
-        // 1. 미분류 영상 최대 20개 조회 (첫 번째 카테고리 기준)
+        // 1. 미분류 영상 최대 100개 조회 (첫 번째 카테고리 기준)
         let targetCat = null;
         let videos = [];
 
@@ -425,7 +425,7 @@ router.post('/batch-classify', async (req, res) => {
                     JOIN sub_categories sc ON vsc.sub_category_id = sc.id
                     WHERE sc.parent_category_name = ?
                 )
-                LIMIT 20
+                LIMIT 100
             `, [catRow.id, catName]);
 
             if (found.length > 0) {
