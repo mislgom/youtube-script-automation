@@ -3065,7 +3065,7 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
     <div class="chart-container mb-24 animation-fade-in" style="border:2px solid var(--accent); background:var(--accent-glow); padding:32px; text-align:center;">
       <div class="spinner" style="margin: 0 auto 16px;"></div>
       <div style="color:var(--accent); font-weight:700; font-size:1rem;">
-        📊 [${catY} × ${catX}] 떡상 영상을 분석하고 있습니다...
+        📊 [${catY}] 떡상 영상을 분석하고 있습니다...
       </div>
     </div>
   `;
@@ -3127,7 +3127,7 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
     deepArea.innerHTML = `
       <div class="chart-container spike-modal-container mb-24 animation-fade-in">
         <div class="spike-modal-header">
-          <h3>📊 [${catY} × ${catX}] 떡상 영상 TOP ${spikeVideos.length}</h3>
+          <h3>📊 [${catY}] 떡상 영상 TOP ${spikeVideos.length}</h3>
           <p class="spike-modal-subtitle">
             전체 ${fmt(totalVideosInCategory)}개 영상 중 떡상 조건 충족: ${fmt(totalSpikeVideos)}개 → 상위 ${spikeVideos.length}개 표시
           </p>
