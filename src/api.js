@@ -2,13 +2,14 @@
 const API_BASE = '/api';
 
 async function request(path, options = {}) {
-    const { method = 'GET', body, params, signal } = options;
+    const { method = 'GET', body, params, signal, keepalive } = options;
     let url = `${API_BASE}${path}`;
     if (params) {
         const q = new URLSearchParams(params).toString();
         url += `?${q}`;
     }
     const fetchOptions = { method, headers: { 'Content-Type': 'application/json' }, signal };
+    if (keepalive) fetchOptions.keepalive = true;
     if (body) fetchOptions.body = JSON.stringify(body);
 
     const res = await fetch(url, fetchOptions);
@@ -86,7 +87,7 @@ export const api = {
     buildGroupDna: (dnaResults) => request('/dna/group', { method: 'POST', body: { dnaResults } }),
     extractLocalDna: (data) => request('/dna/local-dna', { method: 'POST', body: data }),
     getUnclassifiedCount: () => request('/dna/unclassified-count'),
-    batchClassify: () => request('/dna/batch-classify', { method: 'POST' }),
+    batchClassify: () => request('/dna/batch-classify', { method: 'POST', keepalive: true }),
 
     // Ideas
     getIdeas: (status) => request('/ideas', { params: status ? { status } : {} }),

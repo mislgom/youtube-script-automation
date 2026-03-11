@@ -211,10 +211,13 @@ export async function renderGaps(container, { api }) {
   const subClassifyStatus = document.getElementById('sub-classify-status');
   const subClassifyProgressText = document.getElementById('sub-classify-progress-text');
 
+  let currentUnclassified = 0;
+
   const refreshSubCategoryProgress = async () => {
     try {
       const prog = await api.getSubCategoryProgress();
       const pct = prog.total > 0 ? Math.round(prog.classified / prog.total * 100) : 0;
+      currentUnclassified = prog.unclassified;
       const countEl = document.getElementById('yadam-total-count');
       if (countEl) countEl.textContent = prog.total.toLocaleString();
       subClassifyProgressText.innerHTML = `전체 <b style="color:var(--text-primary); font-size:1rem;">${prog.total.toLocaleString()}</b>개 영상 중 <b style="color:var(--accent); font-size:1rem;">${prog.classified.toLocaleString()}</b>개 분류 완료 (<b style="color:var(--accent);">${pct}%</b>) &nbsp;·&nbsp; 미분류 <b style="color:#f59e0b; font-size:1rem;">${prog.unclassified.toLocaleString()}</b>개`;
@@ -234,18 +237,18 @@ export async function renderGaps(container, { api }) {
 
   refreshSubCategoryProgress();
 
+  const beforeUnloadHandler = (e) => {
+    e.preventDefault();
+    e.returnValue = 'AI 분류가 진행 중입니다. 페이지를 떠나면 결과를 받지 못할 수 있습니다.';
+  };
+
   subClassifyBtn?.addEventListener('click', async () => {
+    const batchSize = Math.min(currentUnclassified, 100);
     subClassifyBtn.disabled = true;
     subClassifyBtn.textContent = '⏳ 분류 중... (Gemini 1회 호출)';
     subClassifyStatus.style.display = 'block';
-    subClassifyStatus.textContent = 'AI가 20개 영상을 일괄 분류 중입니다...';
-
-    // [주석 처리] 기존 while 루프 방식 — 쿼터 소진 위험으로 제거
-    // while (true) {
-    //   const result = await api.classifySubCategories({ limit: 100 });
-    //   totalProcessed += result.processed || 0;
-    //   if (!result.processed || result.processed === 0) break;
-    // }
+    subClassifyStatus.textContent = `AI가 ${batchSize.toLocaleString()}개 영상을 일괄 분류 중입니다...`;
+    window.addEventListener('beforeunload', beforeUnloadHandler);
 
     try {
       const result = await api.batchClassify();
@@ -254,7 +257,6 @@ export async function renderGaps(container, { api }) {
         subClassifyStatus.textContent = result.message || '미분류 영상이 없습니다.';
         showToast('미분류 영상이 없습니다.', 'info');
       } else {
-        // 분류 결과 목록 표시
         const listHtml = (result.results || [])
           .map(r => `<div style="padding:2px 0; font-size:0.78rem;"><span style="color:var(--text-muted);">${r.title}</span> <span style="color:var(--accent); font-weight:700;">→ ${r.sub_category}</span></div>`)
           .join('');
@@ -270,6 +272,8 @@ export async function renderGaps(container, { api }) {
       showToast('분류 실패: ' + err.message, 'error');
       subClassifyBtn.disabled = false;
       subClassifyBtn.textContent = '🤖 AI 자동 분류 (100건씩)';
+    } finally {
+      window.removeEventListener('beforeunload', beforeUnloadHandler);
     }
   });
 
@@ -477,7 +481,7 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
                     return `
                       <div class="detail-bar-row" data-sat="${satFilter}"
                         data-cat-id="${c.id}" data-count="${c.count}" data-label="${c.label}"
-                        data-theme-label="${label}"
+                        data-theme-label="${label}" data-niche-count="${count || 0}"
                         data-era-id="${eraId}" data-event-id="${eventId}" data-source-id="${sourceId}"
                         style="cursor:pointer;" title="${c.label}: 중복 영상 ${c.count}개">
                         <div class="detail-bar-label" title="${c.label}">${c.label}</div>
@@ -513,9 +517,9 @@ function renderGapResults(data, groupX, groupY, api, targetEl, isRestore = false
         // 세부 행 클릭 → 2단계 드릴다운 (세부 카테고리 선택 UI)
         compactView.querySelectorAll('.detail-bar-row').forEach(row => {
           row.addEventListener('click', async () => {
-            const catX = row.dataset.label;
+            const catX = row.dataset.label.replace(/\//g, '·');
             const catY = row.dataset.themeLabel;
-            const count = parseInt(row.dataset.count || '0', 10);
+            const count = parseInt(row.dataset.nicheCount || row.dataset.count || '0', 10);
             const rowEraId = row.dataset.eraId;
             const rowEventId = row.dataset.eventId;
             const rowSourceId = row.dataset.sourceId;
