@@ -92,6 +92,20 @@ router.get('/status/:channelId', (req, res) => {
     });
 });
 
+// GET /api/youtube/status-all — 모든 활성 수집 작업 상태 일괄 반환 (개별 150회 호출 방지)
+router.get('/status-all', (req, res) => {
+    const result = {};
+    for (const [id, job] of activeJobs.entries()) {
+        result[id] = {
+            status: job.status,
+            progress: job.progress,
+            total: job.total,
+            completedCount: job.completedCount || job.progress
+        };
+    }
+    res.json(result);
+});
+
 // POST /api/youtube/cancel/:channelId — cancel ongoing fetch
 router.post('/cancel/:channelId', (req, res) => {
     const job = activeJobs.get(req.params.channelId);

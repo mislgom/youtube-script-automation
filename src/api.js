@@ -42,6 +42,7 @@ export const api = {
     // YouTube fetch
     fetchChannelVideos: (channelId, maxResults) => request(`/youtube/fetch/${channelId}`, { method: 'POST', body: { maxResults } }),
     getFetchStatus: (channelId) => request(`/youtube/status/${channelId}`),
+    getAllFetchStatuses: () => request('/youtube/status-all'),
     cancelFetch: (channelId) => request(`/youtube/cancel/${channelId}`, { method: 'POST' }),
     searchYouTube: (data) => request('/youtube/search', { method: 'POST', body: data }),
 
