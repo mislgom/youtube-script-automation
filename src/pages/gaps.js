@@ -255,8 +255,10 @@ export async function renderGaps(container, { api }) {
 
       if (result.classified === 0) {
         const hasRemaining = (result.remaining ?? currentUnclassified) > 0;
-        subClassifyStatus.textContent = result.message || (hasRemaining ? 'AI 응답 매칭 실패. 다시 시도해주세요.' : '미분류 영상이 없습니다.');
-        showToast(hasRemaining ? 'AI 응답 매칭 실패. 다시 시도해주세요.' : '미분류 영상이 없습니다.', hasRemaining ? 'warning' : 'info');
+        const msg = hasRemaining ? 'AI 응답 매칭 실패. 다시 시도해주세요.' : '미분류 영상이 없습니다.';
+        subClassifyStatus.innerHTML = hasRemaining
+          ? `<div style="color:#f59e0b; font-weight:700; padding:8px 12px; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:8px;">⚠️ ${msg}</div>`
+          : `<div style="color:var(--text-muted);">✅ ${msg}</div>`;
       } else {
         const listHtml = (result.results || [])
           .map(r => `<div style="padding:2px 0; font-size:0.78rem;"><span style="color:var(--text-muted);">${r.title}</span> <span style="color:var(--accent); font-weight:700;">→ ${r.sub_category}</span></div>`)
