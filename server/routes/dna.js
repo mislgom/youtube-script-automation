@@ -387,6 +387,7 @@ router.get('/unclassified-count', (req, res) => {
         const row = queryOne(`
             SELECT COUNT(DISTINCT v.video_id) as cnt
             FROM videos v
+            JOIN channels ch ON v.channel_id = ch.id AND ch.group_tag = '야담'
             JOIN video_categories vc ON v.id = vc.video_id
             JOIN categories c ON vc.category_id = c.id
             WHERE c.group_name = '사건유형'
@@ -417,6 +418,7 @@ router.post('/batch-classify', async (req, res) => {
             const found = queryAll(`
                 SELECT DISTINCT v.id, v.video_id, v.title
                 FROM videos v
+                JOIN channels ch ON v.channel_id = ch.id AND ch.group_tag = '야담'
                 JOIN video_categories vc ON v.id = vc.video_id AND vc.category_id = ?
                 WHERE v.video_id NOT IN (
                     SELECT vsc.video_id FROM video_sub_categories vsc
@@ -438,6 +440,7 @@ router.post('/batch-classify', async (req, res) => {
             const remaining = queryOne(`
                 SELECT COUNT(DISTINCT v.video_id) as cnt
                 FROM videos v
+                JOIN channels ch ON v.channel_id = ch.id AND ch.group_tag = '야담'
                 JOIN video_categories vc ON v.id = vc.video_id
                 JOIN categories c ON vc.category_id = c.id
                 WHERE c.group_name = '사건유형'
@@ -490,6 +493,7 @@ ${videos.map((v, idx) => `${idx + 1}. ${v.video_id} | ${v.title}`).join('\n')}
         const remaining = queryOne(`
             SELECT COUNT(DISTINCT v.video_id) as cnt
             FROM videos v
+            JOIN channels ch ON v.channel_id = ch.id AND ch.group_tag = '야담'
             JOIN video_categories vc ON v.id = vc.video_id
             JOIN categories c ON vc.category_id = c.id
             WHERE c.group_name = '사건유형'
