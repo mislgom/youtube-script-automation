@@ -463,7 +463,7 @@ ${videos.map((v, idx) => `${idx + 1}. ${v.video_id} | ${v.title}`).join('\n')}
 [{"videoId":"영상ID","subCategory":"선택한세부카테고리"},...]
 주의: 반드시 위 세부 카테고리 목록에서만 선택하세요.`;
 
-        const raw = await callGemini(prompt, { jsonMode: true });
+        const raw = await callGemini(prompt, { jsonMode: true, maxTokens: 65536 });
         if (!raw) {
             return res.status(500).json({ error: 'Gemini 응답이 없습니다.' });
         }
