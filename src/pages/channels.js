@@ -234,6 +234,7 @@ export async function renderChannels(container, { api, navigate }) {
           <option value="asc">구독자 적은 순</option>
         </select>
 
+        <button class="btn btn-secondary" id="fetch-economy-btn" style="height:44px; padding:0 20px; font-size:0.95rem; align-self:flex-start;">📈 경제 채널 수집</button>
         <button class="btn btn-secondary" id="fetch-all-btn" style="height:44px; padding:0 20px; font-size:0.95rem; align-self:flex-start;">🔄 모든 채널 수집</button>
 
         <button class="btn btn-accent" id="auto-categorize-btn" style="height:44px; padding:0 20px; font-size:0.95rem; background:linear-gradient(135deg, #6e8efb, #a777e3); border:none; align-self:flex-start;">🪄 AI 자동 분류</button>
@@ -250,6 +251,17 @@ export async function renderChannels(container, { api, navigate }) {
   `;
 
   document.getElementById('add-channel-btn').addEventListener('click', () => showAddChannelModal(api));
+
+  document.getElementById('fetch-economy-btn').addEventListener('click', async () => {
+    const channels = await api.getChannels();
+    const toFetch = channels.filter(ch => ch.is_active !== 0 && ch.group_tag === '경제');
+    if (toFetch.length === 0) { showToast('수집할 경제 채널이 없습니다.', 'warning'); return; }
+
+    showToast(`경제 채널 ${toFetch.length}개 수집을 시작합니다.`, 'info');
+    for (const ch of toFetch) {
+      startSingleCollection(api, ch.id, false);
+    }
+  });
 
   document.getElementById('fetch-all-btn').addEventListener('click', async () => {
     if (isFetchAllRunning) {

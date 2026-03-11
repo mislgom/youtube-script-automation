@@ -1235,112 +1235,17 @@ router.get('/background-status', (req, res) => {
     res.json(getBackgroundStatus());
 });
 
-// POST /api/analysis/classify-sub-categories
-router.post('/classify-sub-categories', async (req, res) => {
-    const debug = {
-        categories: {},
-        videoCounts: {},
-        errors: [],
-        geminiCalls: { total: 0, success: 0, failed: 0 },
-        cloudRunUrl: queryOne("SELECT value FROM settings WHERE key='cloud_run_url'")?.value || 'NOT SET',
-        totalVideos: queryOne('SELECT COUNT(*) as cnt FROM videos')?.cnt || 0,
-        totalVideoCategories: queryOne('SELECT COUNT(*) as cnt FROM video_categories')?.cnt || 0,
-        totalSubCategories: queryOne('SELECT COUNT(*) as cnt FROM sub_categories')?.cnt || 0,
-        totalVideoSubCategories: queryOne('SELECT COUNT(*) as cnt FROM video_sub_categories')?.cnt || 0,
-    };
-    try {
-        const { parentCategory = null, limit = 100 } = req.body || {};
-        const categories = parentCategory ? [parentCategory] : Object.keys(SUB_CAT_MAP);
-        console.log('[분류] 시작, 카테고리 목록:', categories);
-
-        let totalProcessed = 0;
-        let totalFailed = 0;
-
-        for (const catName of categories) {
-            const subCats = SUB_CAT_MAP[catName];
-            if (!subCats) continue;
-
-            const catRow = queryOne("SELECT id FROM categories WHERE name = ? AND group_name = '사건유형'", [catName]);
-            console.log('[분류] 카테고리:', catName, 'catRow:', catRow);
-            debug.categories[catName] = catRow ? { found: true, id: catRow.id } : { found: false };
-            if (!catRow) continue;
-
-            const videos = queryAll(`
-                SELECT DISTINCT v.id, v.video_id, v.title
-                FROM videos v
-                JOIN video_categories vc ON v.id = vc.video_id AND vc.category_id = ?
-                WHERE v.video_id NOT IN (
-                    SELECT vsc.video_id FROM video_sub_categories vsc
-                    JOIN sub_categories sc ON vsc.sub_category_id = sc.id
-                    WHERE sc.parent_category_name = ?
-                )
-                LIMIT ?
-            `, [catRow.id, catName, limit]);
-            console.log('[분류] 미분류 영상:', videos.length, '개');
-            debug.videoCounts[catName] = videos.length;
-
-            if (videos.length === 0) continue;
-
-            for (let i = 0; i < videos.length; i += 20) {
-                const batch = videos.slice(i, i + 20);
-                console.log('[분류] Gemini 호출 배치:', batch.map(v => v.title));
-                const prompt = `아래 유튜브 야담 영상들의 제목을 보고, 각 영상이 해당하는 세부 카테고리를 1개 선택하세요.
-
-[사건유형: ${catName}]
-세부 카테고리 목록: ${subCats.join(', ')}
-
-영상 목록:
-${batch.map((v, idx) => `${idx + 1}. ${v.video_id} | ${v.title}`).join('\n')}
-
-응답 형식 (JSON 배열만 출력):
-[{"videoId":"영상ID","subCategory":"선택한세부카테고리"},...]
-주의: 반드시 위 세부 카테고리 목록에서만 선택하세요.`;
-
-                try {
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    debug.geminiCalls.total++;
-                    const raw = await callGemini(prompt, { jsonMode: true });
-                    console.log('[분류] Gemini 응답:', raw);
-                    if (!raw) {
-                        debug.geminiCalls.failed++;
-                        debug.errors.push(`[${catName}] Gemini 응답 null`);
-                        continue;
-                    }
-                    debug.geminiCalls.success++;
-                    debug.lastResponse = raw.substring(0, 100);
-                    const jsonStr = raw.replace(/```json|```/g, '').trim();
-                    const results = JSON.parse(jsonStr);
-
-                    for (const item of results) {
-                        if (!item.videoId || !item.subCategory) continue;
-                        if (!subCats.includes(item.subCategory)) continue;
-
-                        runSQLNoSave(`INSERT OR IGNORE INTO sub_categories (parent_category_name, name) VALUES (?, ?)`, [catName, item.subCategory]);
-                        const scRow = queryOne(`SELECT id FROM sub_categories WHERE parent_category_name = ? AND name = ?`, [catName, item.subCategory]);
-                        if (!scRow) continue;
-
-                        runSQLNoSave(`INSERT OR IGNORE INTO video_sub_categories (video_id, sub_category_id) VALUES (?, ?)`, [item.videoId, scRow.id]);
-                        totalProcessed++;
-                    }
-                } catch (batchErr) {
-                    console.error('[분류] 에러:', batchErr.message);
-                    logToFile(`[SubCat] Batch error for ${catName}: ${batchErr.message}`);
-                    debug.geminiCalls.failed++;
-                    debug.errors.push(`[${catName}] ${batchErr.message}`);
-                    totalFailed += batch.length;
-                }
-            }
-        }
-
-        saveDB();
-        console.log('[분류 응답]', JSON.stringify({ processed: totalProcessed, failed: totalFailed, debug }));
-        res.json({ success: true, processed: totalProcessed, failed: totalFailed, debug });
-    } catch (err) {
-        console.error('[분류] 에러:', err.message);
-        debug.errors.push(`[핸들러] ${err.message}`);
-        res.status(500).json({ error: err.message, debug });
-    }
+// POST /api/analysis/classify-sub-categories — [비활성화] 대량 Gemini 호출 위험으로 차단
+// 대체: POST /api/dna/batch-classify (20개 1회 호출)
+router.post('/classify-sub-categories', (req, res) => {
+    return res.status(410).json({
+        error: '이 엔드포인트는 비활성화되었습니다. /api/dna/batch-classify를 사용하세요.',
+        deprecated: true
+    });
 });
+
+// [원본 코드 삭제됨] 대량 Gemini 호출(카테고리당 20개 배치 × 9카테고리) 위험으로 제거
+// 대체 엔드포인트: POST /api/dna/batch-classify
 
 // ═══════════════════════════════════════════════════════════
 // 단일 영상 세부 카테고리 분류 (수집 시 자동 호출용)

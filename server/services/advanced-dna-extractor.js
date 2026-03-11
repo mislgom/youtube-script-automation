@@ -172,7 +172,8 @@ export async function recommendTitles(dna, goldenKeywords, category = '야담', 
 ]`;
 
     try {
-        const raw = await callGemini(prompt, { useGoogleSearch: true });
+        // jsonMode: true — google_search 그라운딩 텍스트가 섞이면 JSON.parse 실패 → useGoogleSearch 금지
+        const raw = await callGemini(prompt, { jsonMode: true });
         if (!raw || typeof raw !== 'string') return [];
         const jsonStr = raw.replace(/```json|```/g, '').trim();
         const parsed = JSON.parse(jsonStr);

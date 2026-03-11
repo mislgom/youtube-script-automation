@@ -156,8 +156,16 @@ export async function renderGaps(container, { api }) {
     }
 
     // 4. Deep Analysis (Yadam/Custom)
+    // [안전장치] deepStatus=LOADING 상태 자동 재실행 제거 — 페이지 새로고침 시 Gemini 자동 호출 차단
+    // 이전 분석이 중단된 경우 사용자가 히트맵을 직접 클릭해야 재실행됩니다.
     if (s.deepStatus === 'LOADING' && s.deepParams) {
-      performDeepAnalysis(s.deepParams.catX, s.deepParams.catY, s.deepParams.groupX, s.deepParams.groupY, s.deepParams.existingCount, api, s.deepParams.isYadam, s.deepParams.meta);
+      updateStoredState({ deepStatus: 'IDLE' });
+      setTimeout(() => {
+        const area = document.getElementById('deep-analysis-area');
+        if (area) {
+          area.innerHTML = '<div style="padding:20px; color:var(--text-muted); font-size:0.85rem; text-align:center; border:1px dashed rgba(255,255,255,0.1); border-radius:10px;">⚠️ 이전 분석이 중단되었습니다. 히트맵 셀을 다시 클릭하면 분석이 시작됩니다.</div>';
+        }
+      }, 300);
     } else if (s.deepHtml) {
       setTimeout(() => {
         const area = document.getElementById('deep-analysis-area');
@@ -247,6 +255,15 @@ export async function renderGaps(container, { api }) {
       const prog = await api.getSubCategoryProgress();
       const pct = prog.total > 0 ? Math.round(prog.classified / prog.total * 100) : 0;
       subClassifyProgressText.textContent = `전체 ${prog.total}개 영상 중 ${prog.classified}개 분류 완료 (${pct}%) · 미분류 ${prog.unclassified}개`;
+      if (subClassifyBtn) {
+        if (prog.unclassified === 0) {
+          subClassifyBtn.disabled = true;
+          subClassifyBtn.textContent = '✅ 모든 영상 분류 완료';
+        } else {
+          subClassifyBtn.disabled = false;
+          subClassifyBtn.textContent = '🤖 AI 자동 분류 (20건씩)';
+        }
+      }
     } catch (e) {
       subClassifyProgressText.textContent = '진행률 조회 실패';
     }
@@ -256,27 +273,40 @@ export async function renderGaps(container, { api }) {
 
   subClassifyBtn?.addEventListener('click', async () => {
     subClassifyBtn.disabled = true;
-    subClassifyBtn.textContent = '⏳ 분류 중...';
+    subClassifyBtn.textContent = '⏳ 분류 중... (Gemini 1회 호출)';
     subClassifyStatus.style.display = 'block';
-    subClassifyStatus.textContent = 'AI가 세부 카테고리를 분류하고 있습니다... (배치당 약 10~30초 소요)';
+    subClassifyStatus.textContent = 'AI가 20개 영상을 일괄 분류 중입니다...';
 
-    let totalProcessed = 0;
+    // [주석 처리] 기존 while 루프 방식 — 쿼터 소진 위험으로 제거
+    // while (true) {
+    //   const result = await api.classifySubCategories({ limit: 100 });
+    //   totalProcessed += result.processed || 0;
+    //   if (!result.processed || result.processed === 0) break;
+    // }
+
     try {
-      while (true) {
-        const result = await api.classifySubCategories({ limit: 100 });
-        totalProcessed += result.processed || 0;
-        subClassifyStatus.textContent = `누적 ${totalProcessed}개 분류 완료 중...`;
+      const result = await api.batchClassify();
+
+      if (result.classified === 0) {
+        subClassifyStatus.textContent = result.message || '미분류 영상이 없습니다.';
+        showToast('미분류 영상이 없습니다.', 'info');
+      } else {
+        // 분류 결과 목록 표시
+        const listHtml = (result.results || [])
+          .map(r => `<div style="padding:2px 0; font-size:0.78rem;"><span style="color:var(--text-muted);">${r.title}</span> <span style="color:var(--accent); font-weight:700;">→ ${r.sub_category}</span></div>`)
+          .join('');
+        subClassifyStatus.innerHTML = `
+          <div style="color:var(--success); font-weight:700; margin-bottom:6px;">✅ ${result.classified}건 분류 완료 · 미분류 ${result.remaining}건 남음</div>
+          <div style="max-height:120px; overflow-y:auto; background:rgba(255,255,255,0.03); border-radius:6px; padding:6px 8px;">${listHtml}</div>
+        `;
+        showToast(result.message, 'success');
         await refreshSubCategoryProgress();
-        if (!result.processed || result.processed === 0) break;
       }
-      subClassifyStatus.textContent = `✅ 분류 완료! 총 ${totalProcessed}개 처리`;
-      showToast(`세부 카테고리 분류 완료 (${totalProcessed}개)`, 'success');
     } catch (err) {
       subClassifyStatus.textContent = `❌ 오류: ${err.message}`;
       showToast('분류 실패: ' + err.message, 'error');
-    } finally {
       subClassifyBtn.disabled = false;
-      subClassifyBtn.textContent = '▶ 분류 실행';
+      subClassifyBtn.textContent = '🤖 AI 자동 분류 (20건씩)';
     }
   });
 
@@ -765,6 +795,17 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
   const now = Date.now();
   const stored = getStoredState();
 
+  // [안전장치] 빠른 재호출 방지: 마지막 호출 후 10초 이내 동일 분석 재실행 차단
+  const lastCallKey = `__deepLastCall_${analysisKey}`;
+  const lastCallTime = window[lastCallKey] || 0;
+  if (now - lastCallTime < 10000 && lastCallTime > 0) {
+    const remaining = Math.ceil((10000 - (now - lastCallTime)) / 1000);
+    showToast(`쿼터 보호: ${remaining}초 후 재시도 가능합니다.`, 'warning');
+    console.warn(`[performDeepAnalysis] Rapid re-call blocked (${remaining}s cooldown remaining)`);
+    return;
+  }
+  window[lastCallKey] = now;
+
   // 1. Check for ongoing global promise OR stuck state (5min+)
   if (stored.deepStatus === 'LOADING' && stored.deepLastUpdate && (now - stored.deepLastUpdate > 300000)) {
     console.warn('[performDeepAnalysis] Stuck detected (5min+). Forcing reset.');
@@ -851,7 +892,23 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
   // localStorage.setItem(STORAGE_KEY, JSON.stringify(currentState)); // Handled by updateStoredState
 
   try {
-    // Timeout integration
+    // ── [주석 처리] 로컬 DNA 단독 경로 (이전 버전) ───────────────────
+    // const localResult = await api.extractLocalDna({ category: catX });
+    // const dna = localResult.dna;
+    // if (curArea) renderLocalDnaInGaps(curArea, dna, catX, catY, existingCount, opportunityLabel, api);
+    // updateStoredState({ deepStatus: 'SUCCESS', deepHtml: curArea?.innerHTML || '', deepParams: { ... } });
+    // ─────────────────────────────────────────────────────────────────
+
+    // ── 로컬 DNA 보조 통계 먼저 수집 (실패해도 계속 진행) ────────────
+    let localDna = null;
+    try {
+      const localResult = await api.extractLocalDna({ category: catX });
+      localDna = localResult.dna;
+    } catch (e) {
+      console.warn('[performDeepAnalysis] Local DNA 조회 실패 (무시):', e.message);
+    }
+
+    // ── 기존 Gemini 기반 심층 기획 분석 (복원) ───────────────────────
     const timeoutFunc = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('AI 분석 시간 초과 (95초).')), 95000)
     );
@@ -881,6 +938,9 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
       return;
     }
 
+    // 로컬 DNA 보조 정보 섹션 (있을 때만 표시)
+    const localDnaSection = localDna ? buildLocalDnaCompact(localDna, catX) : '';
+
     const html = `
       <div class="chart-container mb-24 animation-fade-in" style="border: 2px solid var(--accent); background: var(--card-bg);">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px;">
@@ -899,7 +959,9 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
             <button class="btn btn-secondary" style="padding:5px 10px; font-size:0.75rem; white-space:nowrap; border-radius:8px;" onclick="this.closest('.chart-container').remove()">✕ 닫기</button>
           </div>
         </div>
-        
+
+        ${localDnaSection}
+
         <div style="margin-bottom:12px;">
           <div style="font-size:1rem; font-weight:700; color:var(--text-secondary); white-space:nowrap; margin-bottom:6px;">
             💡 [Step 1] 틈새 시장 테마 추천 (TOP 10)
@@ -909,10 +971,10 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
           </p>
         </div>
 
-        
+
         <div id="deep-suggestion-list" style="display:flex; flex-direction:column; gap:12px;">
           ${suggestions.map((s, idx) => `
-            <div class="suggestion-item card clickable-suggestion" 
+            <div class="suggestion-item card clickable-suggestion"
               data-title="${s.title}" data-keywords="${(s.keywords || []).join(',')}"
               data-catx="${catX}" data-caty="${catY}" data-groupx="${groupX}" data-groupy="${groupY}"
               style="padding:24px; background:var(--bg-secondary); border-left: 5px solid ${(parseInt(s.gap_rate) || 0) > 80 ? 'var(--success)' : 'var(--accent)'}; transition: all 0.2s; cursor:pointer;">
@@ -942,7 +1004,7 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
                 </div>
               </div>
               ` : ''}
-              
+
               <div style="font-size:1.15rem; line-height:1.6; color:var(--text-secondary); border-top:1px solid rgba(255,255,255,0.05); padding-top:16px;">
                 <span style="color:var(--accent); font-weight:800; margin-right:6px;">Why?</span> ${s.reason || '-'}
               </div>
@@ -966,7 +1028,7 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
     }
 
     // State: SUCCESS
-    const finalState = updateStoredState({
+    updateStoredState({
       deepStatus: 'SUCCESS',
       deepHtml: html,
       deepParams: { catX, catY, groupX, groupY, existingCount, isYadam, meta }
@@ -1062,8 +1124,232 @@ async function performDeepAnalysis(catX, catY, groupX, groupY, existingCount, ap
   }
 }
 
+// ── 로컬 DNA 보조 통계 컴팩트 섹션 (Gemini 결과 위에 표시) ──────────
+function buildLocalDnaCompact(dna, catX) {
+  const ta = dna.title_analysis || {};
+  const tim = dna.timing_analysis || {};
+  const fallbackNote = dna._meta?.usedFallback ? ' (상위 10% 대체)' : '';
+  const keywords = (ta.top_keywords || []).slice(0, 10);
+  const bestDays = (tim.best_days || []).slice(0, 3);
+  const bestHours = (tim.best_hours || []).slice(0, 3);
+
+  return `
+    <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:12px 14px; margin-bottom:14px;">
+      <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:10px; letter-spacing:0.05em;">
+        📊 DB 기반 떡상 통계${fallbackNote} — ${catX}
+      </div>
+      <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:10px;">
+        <div style="text-align:center;">
+          <div style="font-size:1.2rem; font-weight:900; color:#2ecc40;">${dna.viral_count}<span style="font-size:0.7rem; color:var(--text-muted);">개</span></div>
+          <div style="font-size:0.68rem; color:var(--text-muted);">떡상 영상</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:1.2rem; font-weight:900; color:#ff4136;">${dna.viral_rate}<span style="font-size:0.7rem; color:var(--text-muted);">%</span></div>
+          <div style="font-size:0.68rem; color:var(--text-muted);">떡상 비율</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:1.2rem; font-weight:900; color:#ffd700;">${ta.avg_length || 0}<span style="font-size:0.7rem; color:var(--text-muted);">자</span></div>
+          <div style="font-size:0.68rem; color:var(--text-muted);">평균 제목</div>
+        </div>
+        ${bestDays.length > 0 ? `
+        <div style="text-align:center;">
+          <div style="font-size:1.1rem; font-weight:900; color:var(--accent);">${bestDays[0]}요일</div>
+          <div style="font-size:0.68rem; color:var(--text-muted);">최적 요일</div>
+        </div>` : ''}
+        ${bestHours.length > 0 ? `
+        <div style="text-align:center;">
+          <div style="font-size:1.1rem; font-weight:900; color:var(--accent);">${bestHours[0]}시</div>
+          <div style="font-size:0.68rem; color:var(--text-muted);">최적 시간</div>
+        </div>` : ''}
+      </div>
+      ${keywords.length > 0 ? `
+      <div>
+        <div style="font-size:0.68rem; color:var(--text-muted); margin-bottom:5px;">자주 등장하는 키워드</div>
+        <div style="display:flex; flex-wrap:wrap; gap:4px;">
+          ${keywords.map(w => `<span style="background:rgba(255,200,0,0.1); color:#ffd700; border:1px solid rgba(255,200,0,0.25); border-radius:16px; padding:2px 8px; font-size:0.72rem;">${w}</span>`).join('')}
+        </div>
+      </div>` : ''}
+    </div>
+  `;
+}
+
+// ── 로컬 DNA 결과를 심층 기획 분석 영역에 렌더링 ─────────────────────
+function renderLocalDnaInGaps(area, dna, catX, catY, existingCount, opportunityLabel, api) {
+  const ta = dna.title_analysis || {};
+  const tim = dna.timing_analysis || {};
+  const tag = dna.tag_analysis || {};
+  const genre = dna.genre_distribution || {};
+  const sp = ta.structure_pattern || {};
+
+  // 장르 바 차트
+  const genreEntries = Object.entries(genre).sort((a, b) => b[1] - a[1]);
+  const genreHtml = genreEntries.length > 0
+    ? genreEntries.map(([name, pct]) => `
+        <div style="margin-bottom:6px;">
+          <div style="display:flex; justify-content:space-between; font-size:0.78rem; margin-bottom:2px;">
+            <span>${name}</span><span style="color:var(--accent);">${pct}%</span>
+          </div>
+          <div style="background:rgba(255,255,255,0.07); border-radius:4px; height:6px; overflow:hidden;">
+            <div style="width:${pct}%; height:100%; background:var(--accent); border-radius:4px;"></div>
+          </div>
+        </div>`).join('')
+    : '<span style="color:var(--text-muted); font-size:0.8rem;">카테고리 데이터 없음</span>';
+
+  // 요일 분포 막대 차트
+  const dayEntries = Object.entries(tim.day_distribution || {});
+  const maxDay = Math.max(...dayEntries.map(([, v]) => v), 1);
+  const dayHtml = dayEntries.map(([day, cnt]) => `
+    <div style="text-align:center; flex:1;">
+      <div style="font-size:0.65rem; color:var(--text-muted); margin-bottom:3px;">${day}</div>
+      <div style="background:rgba(255,255,255,0.07); border-radius:3px; height:40px; position:relative; overflow:hidden;">
+        <div style="position:absolute; bottom:0; width:100%; height:${Math.round(cnt/maxDay*100)}%; background:var(--accent); border-radius:3px 3px 0 0;"></div>
+      </div>
+      <div style="font-size:0.65rem; margin-top:2px;">${cnt}</div>
+    </div>`).join('');
+
+  // 구조 패턴 태그
+  const structTags = [
+    ['의문형', sp.question], ['감탄형', sp.exclamation],
+    ['서술형', sp.narrative], ['말줄임', sp.ellipsis], ['인용형', sp.quote]
+  ].filter(([, v]) => v > 0)
+   .map(([name, pct]) => `<span style="background:rgba(120,80,255,0.15); color:var(--accent); border:1px solid rgba(120,80,255,0.3); border-radius:16px; padding:3px 10px; font-size:0.78rem;">${name} ${pct}%</span>`)
+   .join('');
+
+  const fallbackNote = dna._meta?.usedFallback
+    ? `<div style="font-size:0.75rem; color:#fbbf24; margin-bottom:8px;">⚠ 떡상 기준(구독자 대비 50배) 미달 — 상위 10% 영상으로 대체 분석</div>` : '';
+
+  const uid = 'gdna' + Date.now();
+
+  area.innerHTML = `
+    <div class="chart-container mb-24 animation-fade-in" style="border:2px solid var(--accent); background:var(--card-bg);">
+      <!-- 헤더 -->
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px;">
+        <div style="flex:1;">
+          <h4 style="margin:0 0 6px 0; color:var(--accent); font-size:0.9rem; line-height:1.4;">
+            📊 [${catY} × ${catX}] DB 기반 떡상 DNA 분석
+          </h4>
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px;">
+            ${opportunityLabel}
+            <span class="tag safe">로컬 분석 완료 (Gemini 없음)</span>
+            <span style="font-size:0.78rem; color:var(--text-muted);">기존 영상 ${existingCount}개</span>
+          </div>
+        </div>
+        <div class="flex gap-8">
+          <button class="btn btn-secondary" style="padding:5px 10px; font-size:0.75rem; white-space:nowrap; border-radius:8px;" onclick="window.redoDeepAnalysis()">🔄 다시 분석</button>
+          <button class="btn btn-secondary" style="padding:5px 10px; font-size:0.75rem; white-space:nowrap; border-radius:8px;" onclick="this.closest('.chart-container').remove()">✕ 닫기</button>
+        </div>
+      </div>
+
+      ${fallbackNote}
+
+      <!-- 통계 헤더 -->
+      <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
+        <div style="flex:1; min-width:90px; text-align:center; background:rgba(46,204,64,0.08); border-radius:10px; padding:10px;">
+          <div style="font-size:1.4rem; font-weight:900; color:#2ecc40;">${dna.viral_count}</div>
+          <div style="font-size:0.7rem; color:var(--text-muted);">떡상 영상</div>
+        </div>
+        <div style="flex:1; min-width:90px; text-align:center; background:rgba(255,255,255,0.04); border-radius:10px; padding:10px;">
+          <div style="font-size:1.4rem; font-weight:900;">${dna.total_count}</div>
+          <div style="font-size:0.7rem; color:var(--text-muted);">전체 영상</div>
+        </div>
+        <div style="flex:1; min-width:90px; text-align:center; background:rgba(255,65,54,0.08); border-radius:10px; padding:10px;">
+          <div style="font-size:1.4rem; font-weight:900; color:#ff4136;">${dna.viral_rate}%</div>
+          <div style="font-size:0.7rem; color:var(--text-muted);">떡상 비율</div>
+        </div>
+        <div style="flex:1; min-width:90px; text-align:center; background:rgba(255,200,0,0.08); border-radius:10px; padding:10px;">
+          <div style="font-size:1.4rem; font-weight:900; color:#ffd700;">${ta.avg_length || 0}자</div>
+          <div style="font-size:0.7rem; color:var(--text-muted);">평균 제목 길이</div>
+        </div>
+      </div>
+
+      <!-- 탭 -->
+      <div class="flex gap-8 mb-16" id="${uid}-tabs" style="background:rgba(255,255,255,0.03); padding:6px; border-radius:12px;">
+        <button class="btn btn-secondary active-tab gdna-tab-btn" data-uid="${uid}" data-tab="title" style="flex:1; font-weight:700; font-size:0.8rem;">📝 제목 패턴</button>
+        <button class="btn btn-secondary gdna-tab-btn" data-uid="${uid}" data-tab="timing" style="flex:1; font-weight:700; font-size:0.8rem;">⏰ 타이밍</button>
+        <button class="btn btn-secondary gdna-tab-btn" data-uid="${uid}" data-tab="tags" style="flex:1; font-weight:700; font-size:0.8rem;">🏷 태그</button>
+        <button class="btn btn-secondary gdna-tab-btn" data-uid="${uid}" data-tab="genre" style="flex:1; font-weight:700; font-size:0.8rem;">🎭 장르</button>
+      </div>
+
+      <!-- 제목 패턴 탭 -->
+      <div id="${uid}-tab-title" class="gdna-tab-content">
+        <div style="margin-bottom:12px;">
+          <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">자주 등장하는 단어 TOP20</div>
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            ${(ta.top_keywords || []).map(w => `<span style="background:rgba(255,200,0,0.12); color:#ffd700; border:1px solid rgba(255,200,0,0.3); border-radius:20px; padding:3px 10px; font-size:0.78rem;">${w}</span>`).join('')}
+          </div>
+        </div>
+        <div style="margin-bottom:12px;">
+          <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">제목 구조 패턴</div>
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">${structTags || '<span style="color:var(--text-muted); font-size:0.8rem;">데이터 없음</span>'}</div>
+        </div>
+        <div>
+          <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">특수문자 사용</div>
+          <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            ${Object.entries(ta.special_chars || {}).filter(([,v])=>v>0).map(([ch, cnt]) =>
+              `<span style="background:rgba(255,255,255,0.06); border-radius:8px; padding:4px 10px; font-size:0.82rem;">${ch} <strong>${cnt}</strong>회</span>`
+            ).join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- 타이밍 탭 -->
+      <div id="${uid}-tab-timing" class="gdna-tab-content hidden">
+        <div style="margin-bottom:14px;">
+          <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">최적 게시 요일 Top3</div>
+          <div style="display:flex; gap:8px;">
+            ${(tim.best_days || []).map((d, i) => `<span style="background:${i===0?'rgba(46,204,64,0.2)':'rgba(255,255,255,0.06)'}; color:${i===0?'#2ecc40':'inherit'}; border-radius:8px; padding:4px 14px; font-size:0.9rem; font-weight:700;">${d}요일</span>`).join('')}
+          </div>
+        </div>
+        <div style="margin-bottom:14px;">
+          <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">최적 게시 시간대 Top3</div>
+          <div style="display:flex; gap:8px;">
+            ${(tim.best_hours || []).map((h, i) => `<span style="background:${i===0?'rgba(46,204,64,0.2)':'rgba(255,255,255,0.06)'}; color:${i===0?'#2ecc40':'inherit'}; border-radius:8px; padding:4px 14px; font-size:0.9rem; font-weight:700;">${h}시</span>`).join('')}
+          </div>
+        </div>
+        <div>
+          <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">요일별 떡상 영상 수</div>
+          <div style="display:flex; gap:4px; align-items:flex-end; height:70px;">${dayHtml}</div>
+        </div>
+      </div>
+
+      <!-- 태그 탭 -->
+      <div id="${uid}-tab-tags" class="gdna-tab-content hidden">
+        <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:8px;">상위 태그 15개</div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">
+          ${(tag.top_tags || []).length > 0
+            ? tag.top_tags.map(t => `<span style="background:rgba(120,80,255,0.15); color:var(--accent); border:1px solid rgba(120,80,255,0.3); border-radius:16px; padding:4px 12px; font-size:0.82rem;">#${t}</span>`).join('')
+            : '<span style="color:var(--text-muted); font-size:0.8rem;">태그 데이터 없음</span>'}
+        </div>
+      </div>
+
+      <!-- 장르 탭 -->
+      <div id="${uid}-tab-genre" class="gdna-tab-content hidden">
+        <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:12px;">카테고리별 분포</div>
+        ${genreHtml}
+      </div>
+    </div>
+  `;
+
+  // 탭 전환 이벤트
+  area.querySelectorAll(`.gdna-tab-btn[data-uid="${uid}"]`).forEach(btn => {
+    btn.addEventListener('click', () => {
+      area.querySelectorAll(`.gdna-tab-btn[data-uid="${uid}"]`).forEach(b => b.classList.remove('active-tab'));
+      area.querySelectorAll('.gdna-tab-content').forEach(c => c.classList.add('hidden'));
+      btn.classList.add('active-tab');
+      area.querySelector(`#${uid}-tab-${btn.dataset.tab}`)?.classList.remove('hidden');
+    });
+  });
+}
+
 // Global helpers and event attachments
 function attachSuggestionEvents(container, api) {
+  // [안전장치] 중복 리스너 방지: 이미 리스너가 등록된 항목은 건너뜀
+  if (container.dataset.listenersAttached === 'true') {
+    console.log('[attachSuggestionEvents] Already attached, skipping duplicate bind.');
+    return;
+  }
+  container.dataset.listenersAttached = 'true';
+
   container.querySelectorAll('.clickable-suggestion').forEach(item => {
     // Direct assignment to the DOM element property to ensure accessibility in global handlers
     item._api = api;
@@ -1229,7 +1515,7 @@ function attachSuggestionEvents(container, api) {
 
           titlesResult.innerHTML = `
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; gap:6px;">
-              <div style="font-weight:800; color:var(--danger); font-size:0.85rem;">🔥 떡상 공식 추천 제목 (클릭 시 뼈대 생성)</div>
+              <div style="font-weight:800; color:var(--danger); font-size:0.85rem;">🔥 떡상 공식 추천 제목 ${titles.length}개 (원본 1개 포함)</div>
               <div style="display:flex; gap:6px; flex-shrink:0;">
                 <button class="redo-titles-inner-btn" style="background:none; border:1px solid rgba(255,255,255,0.15); color:var(--text-muted); cursor:pointer; font-size:0.72rem; font-weight:700; padding:2px 10px; border-radius:4px;">🔄 다시 추천</button>
                 <button class="titles-section-toggle" style="background:none; border:1px solid rgba(255,255,255,0.15); color:var(--text-muted); cursor:pointer; font-size:0.72rem; font-weight:700; padding:2px 10px; border-radius:4px;">▼ 접기</button>
@@ -1238,18 +1524,22 @@ function attachSuggestionEvents(container, api) {
             <div class="titles-collapsible-content" style="overflow:hidden; transition:max-height 0.3s ease;">
               <div data-title-list style="display:flex; flex-direction:column; gap:8px;">
                 ${titles.map(t => `
-                  <div class="theme-title-item"
+                  <label class="theme-title-item"
                     data-title-val="${t.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"
-                    style="display:flex; align-items:flex-start; gap:12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); padding:10px 14px; border-radius:8px; cursor:pointer; font-size:0.95rem; font-weight:800; transition:all 0.2s;"
-                    onmouseover="this.style.borderColor='var(--accent)';"
-                    onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='rgba(255,255,255,0.08)';">
-                    <input type="checkbox" style="width:18px; height:18px; accent-color:var(--accent); flex-shrink:0; pointer-events:none; margin-top:2px;">
+                    style="display:flex; align-items:flex-start; gap:12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); padding:10px 14px; border-radius:8px; cursor:pointer; font-size:0.95rem; font-weight:800; transition:all 0.2s;">
+                    <input type="radio" name="theme-title-radio" value="${t.title.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" style="width:18px; height:18px; accent-color:var(--accent); flex-shrink:0; margin-top:2px;">
                     <div style="flex:1;">
                       <span class="title-text">${t.title}</span>
                       <span style="font-size:0.65rem; color:var(--accent); font-weight:400; display:block; margin-top:4px;">${t.reason}</span>
                     </div>
-                  </div>
+                  </label>
                 `).join('')}
+              </div>
+              <div style="margin-top:14px; text-align:right;">
+                <button class="theme-gen-skeleton-btn" disabled
+                  style="background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.3); padding:8px 20px; border-radius:8px; font-size:0.9rem; font-weight:700; cursor:not-allowed; opacity:0.5; transition:all 0.2s;">
+                  📝 대본 뼈대 생성
+                </button>
               </div>
             </div><!-- /titles-collapsible-content -->
           `;
@@ -1267,13 +1557,41 @@ function attachSuggestionEvents(container, api) {
             });
           }
 
-          // 제목 아이템 클릭 → 뼈대 생성 (onclick 속성 대신 이벤트 리스너)
-          titlesResult.querySelectorAll('.theme-title-item').forEach(itemEl => {
-            itemEl.addEventListener('click', (e) => {
-              e.stopPropagation();
-              window.genThemeSkeleton(itemEl, itemEl.dataset.titleVal, title);
+          // 라디오 선택 → 하이라이트 + "대본 뼈대 생성" 버튼 활성화
+          const genSkelBtn = titlesResult.querySelector('.theme-gen-skeleton-btn');
+          titlesResult.querySelectorAll('input[name="theme-title-radio"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+              // 하이라이트 초기화
+              titlesResult.querySelectorAll('.theme-title-item').forEach(item => {
+                item.style.background = 'rgba(255,255,255,0.03)';
+                item.style.borderColor = 'rgba(255,255,255,0.08)';
+              });
+              // 선택된 항목 하이라이트
+              const label = radio.closest('.theme-title-item');
+              if (label) {
+                label.style.background = 'rgba(99,102,241,0.1)';
+                label.style.borderColor = 'rgba(99,102,241,0.5)';
+              }
+              // 버튼 활성화
+              if (genSkelBtn) {
+                genSkelBtn.disabled = false;
+                genSkelBtn.style.cursor = 'pointer';
+                genSkelBtn.style.opacity = '1';
+                genSkelBtn.style.background = 'rgba(99,102,241,0.3)';
+              }
             });
           });
+
+          // 대본 뼈대 생성 버튼 클릭
+          if (genSkelBtn) {
+            genSkelBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              const checkedRadio = titlesResult.querySelector('input[name="theme-title-radio"]:checked');
+              if (!checkedRadio) return;
+              const selectedLabel = checkedRadio.closest('.theme-title-item');
+              window.genThemeSkeleton(selectedLabel, checkedRadio.value, title);
+            });
+          }
 
           // 다시 추천 버튼
           const redoInnerBtn = titlesResult.querySelector('.redo-titles-inner-btn');

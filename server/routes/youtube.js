@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { queryOne, queryAll, runSQL } from '../db.js';
 import { fetchChannelVideos, searchVideos, fetchComments } from '../services/youtube-fetcher.js';
 import { fetchTranscript } from '../services/transcript-fetcher.js';
-import { extractKeywords, categorizeVideo, summarizeTranscript } from '../services/gemini-service.js';
+import { extractKeywords, categorizeVideo, summarizeTranscript, fallbackKeywords } from '../services/gemini-service.js';
 import { categorizeVideoByKeywords } from '../services/gap-analyzer.js';
 import { classifySingleVideoSubCategory } from './analysis.js';
 
@@ -159,19 +159,22 @@ async function processChannel(channel, channelDbId, maxResults, job) {
                 return;
             }
 
-            // Extract keywords via Gemini (or fallback)
+            // ── 키워드 추출: fallbackKeywords 사용 (Gemini 호출 없음) ──────
             try {
-                const keywords = await extractKeywords(v.title, v.description, transcriptText || '');
+                const keywords = fallbackKeywords(v.title, v.description || '');
 
-                // Summarize transcript if available
-                let summary = '';
-                if (transcriptText) {
-                    summary = await summarizeTranscript(transcriptText) || '';
-                }
+                // [주석 처리] Gemini extractKeywords — 채널 수집 시 Gemini 호출 차단
+                // const keywords = await extractKeywords(v.title, v.description, transcriptText || '');
+
+                // [주석 처리] summarizeTranscript — 채널 수집 시 비활성화
+                // let summary = '';
+                // if (transcriptText) {
+                //     summary = await summarizeTranscript(transcriptText) || '';
+                // }
+                const summary = '';
 
                 // Save keywords
                 for (const kw of keywords) {
-                    // Upsert keyword
                     runSQL('INSERT OR IGNORE INTO keywords (word) VALUES (?)', [kw]);
                     const kwRow = queryOne('SELECT id FROM keywords WHERE word = ?', [kw]);
                     if (kwRow) {
@@ -180,11 +183,11 @@ async function processChannel(channel, channelDbId, maxResults, job) {
                     }
                 }
 
-                // Save summary and keywords text
+                // Save keywords text (summary 비어있음 — Gemini 미사용)
                 runSQL('UPDATE videos SET transcript_summary = ?, transcript_keywords = ?, is_analyzed = 1 WHERE id = ?',
                     [summary, keywords.join(','), videoDbId]);
 
-                // Cancel check: after keyword extraction and summarization
+                // Cancel check
                 if (job.cancel) {
                     job.status = 'cancelled';
                     job.completedCount = job.progress;
@@ -193,86 +196,37 @@ async function processChannel(channel, channelDbId, maxResults, job) {
                     return;
                 }
 
-                // Categorize
-                const catGroups = queryAll('SELECT DISTINCT group_name FROM categories');
-                console.log(`[DEBUG] catGroups.length=${catGroups.length}`);
-                if (catGroups.length > 0) {
-                    const groupsWithItems = catGroups.map(g => ({
-                        group_name: g.group_name,
-                        items: queryAll('SELECT name FROM categories WHERE group_name = ?', [g.group_name]).map(c => c.name)
-                    }));
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    const catResult = await categorizeVideo(v.title, keywords, groupsWithItems);
-                    let finalCategories = {};
-                    let economyMetadata = {};
-
-                    console.log(`[DEBUG] catResult=`, typeof catResult, catResult);
-                    if (catResult && typeof catResult === 'object') {
-                        if (catResult.categories) {
-                            finalCategories = catResult.categories;
-                            economyMetadata = catResult.economy_metadata || {};
-                        } else {
-                            finalCategories = catResult;
-                        }
-
-                        // Save categories (Fuzzy matching + Keyword fallback)
-                        const allDBCats = queryAll('SELECT * FROM categories');
-
-                        // 1. AI Results Matching (Fuzzy)
-                        for (const [group, aiCatName] of Object.entries(finalCategories)) {
-                            // Exact match first
-                            let cat = queryOne('SELECT id FROM categories WHERE group_name = ? AND name = ?', [group, aiCatName]);
-
-                            // If no exact match, try fuzzy (contained)
-                            if (!cat) {
-                                cat = queryOne('SELECT id FROM categories WHERE group_name = ? AND (name LIKE ? OR ? LIKE "%" || name || "%")', [group, `%${aiCatName}%`, aiCatName]);
-                            }
-
-                            if (cat) {
-                                runSQL('INSERT OR IGNORE INTO video_categories (video_id, category_id, source) VALUES (?, ?, ?)', [videoDbId, cat.id, 'ai']);
-                            }
-                        }
-
-                        // 2. Keyword-based Fallback (Always run as safety net)
-                        const keywordCats = categorizeVideoByKeywords({ title: v.title, description: v.description || '' }, allDBCats);
-                        for (const catId of keywordCats) {
-                            runSQL('INSERT OR IGNORE INTO video_categories (video_id, category_id, source) VALUES (?, ?, ?)', [videoDbId, catId, 'keyword_fallback']);
-                        }
-
-                        // 3. Auto sub-category classification for 사건유형 categories
-                        try {
-                            const eventCatNames = queryAll(`
-                                SELECT c.name FROM video_categories vc
-                                JOIN categories c ON vc.category_id = c.id
-                                WHERE vc.video_id = ? AND c.group_name = '사건유형'
-                            `, [videoDbId]).map(r => r.name);
-                            console.log(`[SubCat] video_id=${v.video_id}, dbId=${videoDbId}, 사건유형=${JSON.stringify(eventCatNames)}`);
-                            if (eventCatNames.length > 0) {
-                                console.log(`[SubCat] 분류 시작: ${v.video_id} (${v.title})`);
-                                await classifySingleVideoSubCategory(v.video_id, v.title, eventCatNames);
-                                console.log(`[SubCat] 분류 완료: ${v.video_id}`);
-                            } else {
-                                console.log(`[SubCat] 사건유형 없어서 스킵: ${v.video_id}`);
-                            }
-                        } catch (subCatErr) {
-                            console.error(`[SubCat] Auto classify failed for ${v.video_id}:`, subCatErr.message, subCatErr.stack);
-                        }
-
-                        // Cancel check: after SubCat classification
-                        if (job.cancel) {
-                            job.status = 'cancelled';
-                            job.completedCount = job.progress;
-                            console.log('[수집 중단] ' + channelDbId + ' - ' + job.progress + '개 수집 완료 후 중단');
-                            setTimeout(() => activeJobs.delete(channelDbId), 30000);
-                            return;
-                        }
-
-                        // Save economy metadata if available
-                        if (Object.keys(economyMetadata).length > 0) {
-                            runSQLNoSave('UPDATE videos SET economy_metadata = ? WHERE id = ?', [JSON.stringify(economyMetadata), videoDbId]);
-                        }
+                // ── 키워드 기반 카테고리 분류 (Gemini 없음) ──────────────────
+                const allDBCats = queryAll('SELECT * FROM categories');
+                if (allDBCats.length > 0) {
+                    const keywordCats = categorizeVideoByKeywords({ title: v.title, description: v.description || '' }, allDBCats);
+                    for (const catId of keywordCats) {
+                        runSQL('INSERT OR IGNORE INTO video_categories (video_id, category_id, source) VALUES (?, ?, ?)', [videoDbId, catId, 'keyword_fallback']);
                     }
                 }
+
+                // [주석 처리] categorizeVideo (Gemini) — 채널 수집 시 비활성화
+                // const catGroups = queryAll('SELECT DISTINCT group_name FROM categories');
+                // if (catGroups.length > 0) {
+                //     const groupsWithItems = catGroups.map(g => ({
+                //         group_name: g.group_name,
+                //         items: queryAll('SELECT name FROM categories WHERE group_name = ?', [g.group_name]).map(c => c.name)
+                //     }));
+                //     await new Promise(resolve => setTimeout(resolve, 3000));
+                //     const catResult = await categorizeVideo(v.title, keywords, groupsWithItems);
+                //     ... (AI fuzzy matching, economy_metadata 저장 등)
+                // }
+
+                // [주석 처리] classifySingleVideoSubCategory (Gemini) — 채널 수집 시 비활성화
+                // try {
+                //     const eventCatNames = queryAll(`SELECT c.name FROM video_categories vc
+                //         JOIN categories c ON vc.category_id = c.id
+                //         WHERE vc.video_id = ? AND c.group_name = '사건유형'`, [videoDbId]).map(r => r.name);
+                //     if (eventCatNames.length > 0) {
+                //         await classifySingleVideoSubCategory(v.video_id, v.title, eventCatNames);
+                //     }
+                // } catch (subCatErr) { ... }
+
             } catch (e) {
                 job.errors.push(`${v.title}: ${e.message}`);
             }

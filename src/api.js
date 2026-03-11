@@ -84,6 +84,8 @@ export const api = {
     getDnaCache: (key) => request(`/dna/cache/${key}`),
     buildGroupDna: (dnaResults) => request('/dna/group', { method: 'POST', body: { dnaResults } }),
     extractLocalDna: (data) => request('/dna/local-dna', { method: 'POST', body: data }),
+    getUnclassifiedCount: () => request('/dna/unclassified-count'),
+    batchClassify: () => request('/dna/batch-classify', { method: 'POST' }),
 
     // Ideas
     getIdeas: (status) => request('/ideas', { params: status ? { status } : {} }),

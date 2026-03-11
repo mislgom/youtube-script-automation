@@ -72,9 +72,7 @@ export async function callGemini(prompt, options = {}) {
         return null;
     }
 
-    // 429 rate limit 시 60초 대기 후 1회 재시도
-    const MAX_RETRIES = 1;
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    // 429 시 즉시 에러 반환 (재시도 없음 — 일일 쿼터 소진 상황에서 60초 대기+재시도는 의미 없음)
     let timer;
     try {
         const timeoutPromise = new Promise((_, reject) => {
@@ -126,12 +124,8 @@ export async function callGemini(prompt, options = {}) {
     } catch (err) {
         if (timer) clearTimeout(timer);
 
-        // 429 rate limit: 60초 대기 후 1회 재시도
-        if ((err.message?.includes('429') || err.message?.includes('quota') || err.message?.includes('RESOURCE_EXHAUSTED')) && attempt < MAX_RETRIES) {
-            console.log(`[AI] Rate limit(429) 감지 — 60초 대기 후 재시도...`);
-            await new Promise(resolve => setTimeout(resolve, 60000));
-            continue;
-        }
+        // [제거됨] 429 시 60초 대기+재시도 로직 — 일일 쿼터 소진 시 무의미하므로 즉시 에러 반환
+        // if (... 429 ... && attempt < MAX_RETRIES) { await sleep(60000); continue; }
 
         console.error(`[AI Error] Gemini API 호출 실패:`, err.message);
         logError(`Gemini Error: ${err.message}`);
@@ -163,7 +157,6 @@ export async function callGemini(prompt, options = {}) {
         }
         throw err;
     }
-    } // end retry loop
 }
 
 // Extract keywords from video title + description + transcript
@@ -501,7 +494,7 @@ JSON 객체로만 응답하세요:
 }
 
 // Fallback: basic keyword extraction without AI
-function fallbackKeywords(title, description = '') {
+export function fallbackKeywords(title, description = '') {
     const text = `${title} ${description.substring(0, 200)}`;
     const stopwords = new Set([
         '의', '를', '을', '에', '에서', '은', '는', '이', '가', '와', '과', '도', '로', '으로',

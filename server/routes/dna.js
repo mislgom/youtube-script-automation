@@ -1,7 +1,9 @@
 import { Router } from 'express';
-import { queryAll } from '../db.js';
+import { queryAll, queryOne, runSQLNoSave, saveDB } from '../db.js';
 import { pickSpikeVideos } from '../services/spike-selector.js';
 import { extractAdvancedDNA, extractGoldenKeywords, recommendTitles, generateDnaSkeleton, buildGroupDNA } from '../services/advanced-dna-extractor.js';
+import { callGemini } from '../services/gemini-service.js';
+import { SUB_CAT_MAP } from '../services/sub-category-service.js';
 
 const router = Router();
 
@@ -372,6 +374,139 @@ router.get('/channels', (req, res) => {
         const channels = queryAll('SELECT id, name FROM channels ORDER BY name');
         res.json({ channels });
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─────────────────────────────────────────────
+// GET /api/dna/unclassified-count
+// 사건유형 분류 영상 중 세부 카테고리 미분류 수 반환
+// ─────────────────────────────────────────────
+router.get('/unclassified-count', (req, res) => {
+    try {
+        const row = queryOne(`
+            SELECT COUNT(DISTINCT v.video_id) as cnt
+            FROM videos v
+            JOIN video_categories vc ON v.id = vc.video_id
+            JOIN categories c ON vc.category_id = c.id
+            WHERE c.group_name = '사건유형'
+            AND v.video_id NOT IN (
+                SELECT DISTINCT video_id FROM video_sub_categories
+            )
+        `);
+        res.json({ count: row?.cnt || 0 });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─────────────────────────────────────────────
+// POST /api/dna/batch-classify
+// 미분류 영상 최대 20개를 Gemini 1회 호출로 일괄 분류
+// ─────────────────────────────────────────────
+router.post('/batch-classify', async (req, res) => {
+    try {
+        // 1. 미분류 영상 최대 20개 조회 (첫 번째 카테고리 기준)
+        let targetCat = null;
+        let videos = [];
+
+        for (const catName of Object.keys(SUB_CAT_MAP)) {
+            const catRow = queryOne("SELECT id FROM categories WHERE name = ? AND group_name = '사건유형'", [catName]);
+            if (!catRow) continue;
+
+            const found = queryAll(`
+                SELECT DISTINCT v.id, v.video_id, v.title
+                FROM videos v
+                JOIN video_categories vc ON v.id = vc.video_id AND vc.category_id = ?
+                WHERE v.video_id NOT IN (
+                    SELECT vsc.video_id FROM video_sub_categories vsc
+                    JOIN sub_categories sc ON vsc.sub_category_id = sc.id
+                    WHERE sc.parent_category_name = ?
+                )
+                LIMIT 20
+            `, [catRow.id, catName]);
+
+            if (found.length > 0) {
+                targetCat = catName;
+                videos = found;
+                break;
+            }
+        }
+
+        // 2. 미분류 영상 없음
+        if (!targetCat || videos.length === 0) {
+            const remaining = queryOne(`
+                SELECT COUNT(DISTINCT v.video_id) as cnt
+                FROM videos v
+                JOIN video_categories vc ON v.id = vc.video_id
+                JOIN categories c ON vc.category_id = c.id
+                WHERE c.group_name = '사건유형'
+                AND v.video_id NOT IN (SELECT DISTINCT video_id FROM video_sub_categories)
+            `)?.cnt || 0;
+            return res.json({ classified: 0, remaining, message: '미분류 영상이 없습니다.' });
+        }
+
+        // 3. Gemini 1회 호출로 분류
+        const subCats = SUB_CAT_MAP[targetCat];
+        const prompt = `아래 유튜브 야담 영상들의 제목을 보고, 각 영상이 해당하는 세부 카테고리를 1개 선택하세요.
+
+[사건유형: ${targetCat}]
+세부 카테고리 목록: ${subCats.join(', ')}
+
+영상 목록:
+${videos.map((v, idx) => `${idx + 1}. ${v.video_id} | ${v.title}`).join('\n')}
+
+응답 형식 (JSON 배열만 출력):
+[{"videoId":"영상ID","subCategory":"선택한세부카테고리"},...]
+주의: 반드시 위 세부 카테고리 목록에서만 선택하세요.`;
+
+        const raw = await callGemini(prompt, { jsonMode: true });
+        if (!raw) {
+            return res.status(500).json({ error: 'Gemini 응답이 없습니다.' });
+        }
+
+        // 4. 파싱 및 DB 저장
+        const jsonStr = raw.replace(/```json|```/g, '').trim();
+        const results = JSON.parse(jsonStr);
+
+        const classified = [];
+        for (const item of results) {
+            if (!item.videoId || !item.subCategory) continue;
+            if (!subCats.includes(item.subCategory)) continue;
+
+            const video = videos.find(v => v.video_id === item.videoId);
+            if (!video) continue;
+
+            runSQLNoSave(`INSERT OR IGNORE INTO sub_categories (parent_category_name, name) VALUES (?, ?)`, [targetCat, item.subCategory]);
+            const scRow = queryOne(`SELECT id FROM sub_categories WHERE parent_category_name = ? AND name = ?`, [targetCat, item.subCategory]);
+            if (!scRow) continue;
+
+            runSQLNoSave(`INSERT OR IGNORE INTO video_sub_categories (video_id, sub_category_id) VALUES (?, ?)`, [item.videoId, scRow.id]);
+            classified.push({ id: video.id, title: video.title, sub_category: item.subCategory });
+        }
+        saveDB();
+
+        // 5. 남은 미분류 수 조회
+        const remaining = queryOne(`
+            SELECT COUNT(DISTINCT v.video_id) as cnt
+            FROM videos v
+            JOIN video_categories vc ON v.id = vc.video_id
+            JOIN categories c ON vc.category_id = c.id
+            WHERE c.group_name = '사건유형'
+            AND v.video_id NOT IN (SELECT DISTINCT video_id FROM video_sub_categories)
+        `)?.cnt || 0;
+
+        res.json({
+            classified: classified.length,
+            remaining,
+            results: classified,
+            message: `${classified.length}건 분류 완료 (${targetCat}). 미분류 ${remaining}건 남음.`
+        });
+
+    } catch (err) {
+        if (err.errorType === 'QUOTA_EXCEEDED' || err.status === 429) {
+            return res.status(429).json({ error: err.message });
+        }
         res.status(500).json({ error: err.message });
     }
 });
