@@ -18,19 +18,6 @@ export async function renderSettings(container, { api }) {
             <div id="key-gemini"></div>
           </div>
 
-          <!-- Vertex Fields (Hidden by default) -->
-          <div id="vertex-fields" style="display:none; margin-top:20px; padding:15px; background:rgba(var(--accent-rgb), 0.05); border:1px solid var(--accent-light); border-radius:12px;">
-            <div style="font-weight:700; color:var(--accent); margin-bottom:10px;">Vertex AI (Google Cloud) 전용 설정</div>
-            <div class="input-group">
-              <label>Project ID</label>
-              <input type="text" id="google-project-id" placeholder="Google Cloud 프로젝트 ID">
-            </div>
-            <div class="input-group">
-              <label>Location (Region)</label>
-              <input type="text" id="google-location" placeholder="us-central1">
-            </div>
-            <button class="btn btn-secondary w-100" id="save-vertex-config">클라우드 설정 저장</button>
-          </div>
         </div>
 
         <!-- General Settings -->
@@ -178,12 +165,12 @@ export async function renderSettings(container, { api }) {
 
     renderKeyField({
       containerId: 'key-cloud-run',
-      label: '구글 클라우드',
-      isSet: !!(settings.cloud_run_url),
-      maskedValue: settings.cloud_run_url || '미설정',
-      placeholder: 'https://gemini-proxy-xxxxx.us-central1.run.app',
+      label: '구글 클라우드 프로젝트 아이디',
+      isSet: !!(settings.google_project_id),
+      maskedValue: settings.google_project_id || '미설정',
+      placeholder: 'project-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
       isPassword: false,
-      onSave: (val) => api.updateSettings({ cloud_run_url: val }),
+      onSave: (val) => api.updateSettings({ google_project_id: val }),
     });
 
     renderKeyField({
@@ -200,26 +187,9 @@ export async function renderSettings(container, { api }) {
 
     document.getElementById('transcript-toggle').checked = settings.transcript_enabled !== 'false';
     document.getElementById('theme-select').value = settings.theme || 'dark';
-    document.getElementById('google-project-id').value = settings.google_project_id || '';
-    document.getElementById('google-location').value = settings.google_location || 'us-central1';
-
-    if (settings.google_project_id || settings.is_gemini_vertex_token) {
-      document.getElementById('vertex-fields').style.display = 'block';
-    }
   } catch (err) {
     showToast('설정 로드 실패: ' + err.message, 'error');
   }
-
-  // Save Vertex Config
-  document.getElementById('save-vertex-config').addEventListener('click', async () => {
-    const projectId = document.getElementById('google-project-id').value;
-    const location = document.getElementById('google-location').value;
-    try {
-      await api.updateSettings({ google_project_id: projectId, google_location: location });
-      showToast('클라우드 구성이 저장되었습니다.', 'success');
-      renderSettings(container, { api });
-    } catch (e) { showToast(e.message, 'error'); }
-  });
 
   // Transcript toggle
   document.getElementById('transcript-toggle').addEventListener('change', async (e) => {

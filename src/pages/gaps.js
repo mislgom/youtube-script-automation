@@ -244,40 +244,81 @@ export async function renderGaps(container, { api }) {
   };
 
   subClassifyBtn?.addEventListener('click', async () => {
-    const batchSize = Math.min(currentUnclassified, 100);
     subClassifyBtn.disabled = true;
-    subClassifyBtn.textContent = '⏳ 분류 중... (Gemini 1회 호출)';
     subClassifyStatus.style.display = 'block';
-    subClassifyStatus.textContent = `AI가 ${batchSize.toLocaleString()}개 영상을 일괄 분류 중입니다...`;
     window.addEventListener('beforeunload', beforeUnloadHandler);
 
-    try {
-      const result = await api.batchClassify();
+    let totalClassified = 0;
+    let consecutiveFailures = 0;
+    const MAX_FAILURES = 3;
 
-      if (result.classified === 0) {
-        const hasRemaining = (result.remaining ?? currentUnclassified) > 0;
-        const msg = hasRemaining ? 'AI 응답 매칭 실패. 다시 시도해주세요.' : '미분류 영상이 없습니다.';
-        subClassifyStatus.innerHTML = hasRemaining
-          ? `<div style="color:#f59e0b; font-weight:700; padding:8px 12px; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:8px;">⚠️ ${msg}</div>`
-          : `<div style="color:var(--text-muted);">✅ ${msg}</div>`;
-      } else {
-        const listHtml = (result.results || [])
-          .map(r => `<div style="padding:2px 0; font-size:0.78rem;"><span style="color:var(--text-muted);">${r.title}</span> <span style="color:var(--accent); font-weight:700;">→ ${r.sub_category}</span></div>`)
-          .join('');
-        subClassifyStatus.innerHTML = `
-          <div style="color:var(--success); font-weight:700; margin-bottom:6px;">✅ ${result.classified}건 분류 완료 · 미분류 ${result.remaining}건 남음</div>
-          <div style="max-height:120px; overflow-y:auto; background:rgba(255,255,255,0.03); border-radius:6px; padding:6px 8px;">${listHtml}</div>
-        `;
-        showToast(result.message, 'success');
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    const updateStatus = (msg, color = 'var(--text-primary)') => {
+      subClassifyStatus.innerHTML = `<div style="color:${color}; font-weight:700; padding:8px 12px; background:rgba(255,255,255,0.04); border-radius:8px;">${msg}</div>`;
+    };
+
+    try {
+      while (true) {
+        subClassifyBtn.textContent = '⏳ 분류 중...';
+        updateStatus('⏳ Gemini AI 분류 요청 중...');
+
+        let result;
+        try {
+          result = await api.batchClassify();
+        } catch (err) {
+          consecutiveFailures++;
+          if (err.message?.includes('429') || err.message?.includes('한도')) {
+            updateStatus(`⚠️ API 한도 초과. 60초 후 재시도... (${consecutiveFailures}/${MAX_FAILURES})`, '#f59e0b');
+            if (consecutiveFailures >= MAX_FAILURES) break;
+            await sleep(60000);
+            continue;
+          }
+          updateStatus(`❌ 오류: ${err.message}`, '#ef4444');
+          showToast('분류 실패: ' + err.message, 'error');
+          break;
+        }
+
+        if (result.done) {
+          updateStatus(`✅ 전체 분류 완료! 누적 ${totalClassified}건`, 'var(--success)');
+          showToast(`전체 분류 완료! 총 ${totalClassified}건`, 'success');
+          break;
+        }
+
+        if (result.classified > 0) {
+          consecutiveFailures = 0;
+          totalClassified += result.classified;
+          const listHtml = (result.results || [])
+            .map(r => `<div style="padding:2px 0; font-size:0.78rem;"><span style="color:var(--text-muted);">${r.title}</span> <span style="color:var(--accent); font-weight:700;">→ [${r.cat_name}] ${r.sub_category}</span></div>`)
+            .join('');
+          subClassifyStatus.innerHTML = `
+            <div style="color:var(--success); font-weight:700; margin-bottom:6px;">✅ 누적 ${totalClassified}건 분류 완료 · 미분류 ${result.remaining}건 남음</div>
+            <div style="max-height:120px; overflow-y:auto; background:rgba(255,255,255,0.03); border-radius:6px; padding:6px 8px;">${listHtml}</div>
+          `;
+
+          // 다음 배치 전 3초 대기
+          for (let i = 3; i > 0; i--) {
+            subClassifyBtn.textContent = `⏳ ${i}초 후 계속...`;
+            await sleep(1000);
+          }
+        } else {
+          consecutiveFailures++;
+          // 매칭 실패 시 5초 대기 후 재시도
+          updateStatus(`⚠️ 매칭 실패. 5초 후 재시도... (${consecutiveFailures}/${MAX_FAILURES})`, '#f59e0b');
+          if (consecutiveFailures >= MAX_FAILURES) {
+            updateStatus('⚠️ 반복 매칭 실패. 수동으로 다시 시도해주세요.', '#f59e0b');
+            break;
+          }
+          await sleep(5000);
+        }
+
+        await refreshSubCategoryProgress();
       }
-      await refreshSubCategoryProgress();
-    } catch (err) {
-      subClassifyStatus.textContent = `❌ 오류: ${err.message}`;
-      showToast('분류 실패: ' + err.message, 'error');
-      subClassifyBtn.disabled = false;
-      subClassifyBtn.textContent = '🤖 AI 자동 분류 (100건씩)';
     } finally {
       window.removeEventListener('beforeunload', beforeUnloadHandler);
+      subClassifyBtn.disabled = false;
+      subClassifyBtn.textContent = '🤖 AI 자동 분류 (100건씩)';
+      await refreshSubCategoryProgress();
     }
   });
 
@@ -2672,38 +2713,321 @@ const DNA_LABELS = {
   min_length: '최소 길이', max_length: '최대 길이', word_count: '단어 수', char_count: '글자 수'
 };
 
+// ────────────────────────────────────────────────
+// DNA 시각화 전용 렌더러
+// ────────────────────────────────────────────────
+
 function renderDnaContent(dnaObj) {
-  if (!dnaObj) return '<p style="color:var(--text-secondary);">데이터 없음</p>';
-  if (typeof dnaObj === 'string') return '<p>' + dnaObj + '</p>';
+  if (!dnaObj || typeof dnaObj !== 'object') {
+    return '<p style="color:var(--text-muted)">DNA 데이터 없음</p>';
+  }
 
   let html = '';
-  for (const [key, value] of Object.entries(dnaObj)) {
-    const label = DNA_LABELS[key] || key.replace(/_/g, ' ');
-    if (typeof value === 'string' || typeof value === 'number') {
-      html += '<div class="dna-field">'
-            + '<span class="dna-field-key">' + label + '</span>'
-            + '<span class="dna-field-value">' + value + '</span>'
-            + '</div>';
-    } else if (Array.isArray(value)) {
-      html += '<div class="dna-field">'
-            + '<span class="dna-field-key">' + label + '</span>'
-            + '<ul class="dna-field-list">'
-            + value.map(item => {
-                if (typeof item === 'object' && item !== null) {
-                  return '<li>' + Object.entries(item).map(([k, v]) => (DNA_LABELS[k] || k.replace(/_/g, ' ')) + ': ' + v).join(' | ') + '</li>';
-                }
-                return '<li>' + item + '</li>';
-              }).join('')
-            + '</ul>'
-            + '</div>';
-    } else if (typeof value === 'object' && value !== null) {
-      html += '<div class="dna-field">'
-            + '<span class="dna-field-key">' + label + '</span>'
-            + '<div class="dna-field-value">' + renderDnaContent(value) + '</div>'
-            + '</div>';
-    }
-  }
+
+  if (dnaObj.hook_dna)      html += renderHookDna(dnaObj.hook_dna);
+  if (dnaObj.structure_dna) html += renderStructureDna(dnaObj.structure_dna);
+  if (dnaObj.emotion_dna)   html += renderEmotionDna(dnaObj.emotion_dna);
+  if (dnaObj.pace_dna)      html += renderPaceDna(dnaObj.pace_dna);
+  if (dnaObj.title_dna)     html += renderTitleDna(dnaObj.title_dna);
+
   return html;
+}
+
+// ─── 1. 훅 DNA ─────────────────────────────────
+function renderHookDna(hook) {
+  const score = hook.hook_strength_score || 0;
+  const scoreColor = score >= 80 ? 'var(--success)'
+                   : score >= 60 ? 'var(--warning)'
+                   : 'var(--danger)';
+
+  const typesTags = (hook.hook_type || '')
+    .split('|').map(t => t.trim()).filter(Boolean)
+    .map(t => `<span class="dna-viz-tag dna-viz-tag--hook">${t}</span>`)
+    .join('');
+
+  const sentences = (hook.hook_sentences || [])
+    .map((s, i) => `
+      <div class="dna-viz-hook-sentence">
+        <span class="dna-viz-hook-num">${i + 1}</span>
+        <span class="dna-viz-hook-text">${s}</span>
+      </div>
+    `).join('');
+
+  const loops = (hook.open_loop || [])
+    .map(l => `<li>${l}</li>`).join('');
+
+  return `
+    <div class="dna-viz-section">
+      <div class="dna-viz-section-header">
+        <span class="dna-viz-icon">🎣</span>
+        <span class="dna-viz-section-title">훅 DNA — 도입부 전략</span>
+      </div>
+      <div class="dna-viz-section-body">
+        <div class="dna-viz-hook-top">
+          <div class="dna-viz-gauge-wrap">
+            <svg class="dna-viz-gauge" viewBox="0 0 120 120">
+              <circle cx="60" cy="60" r="52" fill="none"
+                stroke="var(--border)" stroke-width="10"/>
+              <circle cx="60" cy="60" r="52" fill="none"
+                stroke="${scoreColor}" stroke-width="10"
+                stroke-dasharray="${(score / 100) * 327} 327"
+                stroke-linecap="round"
+                transform="rotate(-90 60 60)"/>
+              <text x="60" y="55" text-anchor="middle"
+                fill="${scoreColor}"
+                font-size="28" font-weight="700">${score}</text>
+              <text x="60" y="72" text-anchor="middle"
+                fill="var(--text-muted)"
+                font-size="11">훅 강도</text>
+            </svg>
+          </div>
+          <div class="dna-viz-hook-types">
+            <div class="dna-viz-label">훅 유형</div>
+            <div class="dna-viz-tags-row">${typesTags}</div>
+          </div>
+        </div>
+        <div class="dna-viz-subsection">
+          <div class="dna-viz-label">훅 문장 패턴</div>
+          ${sentences}
+        </div>
+        <div class="dna-viz-subsection">
+          <div class="dna-viz-label">🔓 열린 루프 (궁금증 유발 포인트)</div>
+          <ul class="dna-viz-loop-list">${loops}</ul>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── 2. 구조 DNA ────────────────────────────────
+function renderStructureDna(struct) {
+  const sections = struct.sections || [];
+  const climax = struct.climax_position || 0;
+  const sectionColors = [
+    'var(--accent)', 'var(--success)', 'var(--warning)',
+    'var(--danger)', 'var(--accent-light)'
+  ];
+
+  const timelineBar = sections.map((s, i) => `
+    <div class="dna-viz-timeline-seg"
+         style="width:${s.duration_pct}%;background:${sectionColors[i % 5]}"
+         title="${s.name} (${s.duration_pct}%)">
+      <span class="dna-viz-timeline-seg-label">${s.name}</span>
+      <span class="dna-viz-timeline-seg-pct">${s.duration_pct}%</span>
+    </div>
+  `).join('');
+
+  const climaxMarker = `
+    <div class="dna-viz-climax-marker" style="left:${climax}%">
+      <div class="dna-viz-climax-line"></div>
+      <div class="dna-viz-climax-label">클라이맥스 ${climax}%</div>
+    </div>
+  `;
+
+  const sectionDetails = sections.map((s, i) => `
+    <div class="dna-viz-struct-detail" data-index="${i}">
+      <div class="dna-viz-struct-detail-header"
+           onclick="this.parentElement.classList.toggle('expanded')">
+        <span class="dna-viz-struct-dot"
+              style="background:${sectionColors[i % 5]}"></span>
+        <span class="dna-viz-struct-name">${s.name}</span>
+        <span class="dna-viz-struct-pct">${s.duration_pct}%</span>
+        <span class="dna-viz-struct-arrow">▸</span>
+      </div>
+      <div class="dna-viz-struct-detail-body">
+        <div class="dna-viz-struct-row">
+          <span class="dna-viz-struct-key">목표</span>
+          <span class="dna-viz-struct-val">${s.goal}</span>
+        </div>
+        <div class="dna-viz-struct-row">
+          <span class="dna-viz-struct-key">핵심 질문</span>
+          <span class="dna-viz-struct-val">${s.key_question}</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  const payoffTags = (struct.payoff_type || '')
+    .split('|').map(t => t.trim()).filter(Boolean)
+    .map(t => `<span class="dna-viz-tag dna-viz-tag--struct">${t}</span>`)
+    .join('');
+
+  return `
+    <div class="dna-viz-section">
+      <div class="dna-viz-section-header">
+        <span class="dna-viz-icon">🧱</span>
+        <span class="dna-viz-section-title">구조 DNA — 이야기 뼈대</span>
+      </div>
+      <div class="dna-viz-section-body">
+        <div class="dna-viz-label">구조 유형:
+          <strong>${struct.structure_type || '미분류'}</strong>
+        </div>
+        <div class="dna-viz-timeline-wrap">
+          <div class="dna-viz-timeline-bar">${timelineBar}</div>
+          ${climaxMarker}
+        </div>
+        <div class="dna-viz-struct-details">${sectionDetails}</div>
+        <div class="dna-viz-subsection">
+          <div class="dna-viz-label">결말 유형</div>
+          <div class="dna-viz-tags-row">${payoffTags}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── 3. 감정 DNA ────────────────────────────────
+function renderEmotionDna(emotion) {
+  const curve = emotion.emotion_curve || [];
+  const emotions = ['tension','anxiety','hope','anger','relief'];
+  const emotionLabels = { tension: '긴장', anxiety: '불안', hope: '희망', anger: '분노', relief: '안도' };
+  const emotionColors = {
+    tension: '#f87171', anxiety: '#fbbf24', hope: '#34d399',
+    anger: '#ef4444', relief: '#60a5fa'
+  };
+
+  const W = 300, H = 150, PAD = 30;
+  const plotW = W - PAD * 2, plotH = H - PAD * 2;
+  const xPositions = curve.map(p => PAD + (p.position_pct / 100) * plotW);
+
+  let gridLines = '';
+  for (let pct = 0; pct <= 100; pct += 25) {
+    const y = PAD + plotH - (pct / 100) * plotH;
+    gridLines += `<line x1="${PAD}" y1="${y}" x2="${W - PAD}" y2="${y}"
+      stroke="var(--border)" stroke-width="0.5"/>`;
+    gridLines += `<text x="${PAD - 5}" y="${y + 3}"
+      text-anchor="end" fill="var(--text-muted)" font-size="9">${pct}</text>`;
+  }
+
+  let xLabels = '';
+  curve.forEach((p, i) => {
+    xLabels += `<text x="${xPositions[i]}" y="${H - 5}"
+      text-anchor="middle" fill="var(--text-muted)" font-size="9">${p.position_pct}%</text>`;
+  });
+
+  let lines = '', dots = '';
+  emotions.forEach(emo => {
+    const color = emotionColors[emo];
+    const points = curve.map((p, i) => `${xPositions[i]},${PAD + plotH - (p[emo] / 100) * plotH}`);
+    lines += `<polyline points="${points.join(' ')}"
+      fill="none" stroke="${color}" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round"/>`;
+    curve.forEach((p, i) => {
+      const x = xPositions[i];
+      const y = PAD + plotH - (p[emo] / 100) * plotH;
+      dots += `<circle cx="${x}" cy="${y}" r="3"
+        fill="${color}" stroke="var(--bg-secondary)" stroke-width="1.5">
+        <title>${emotionLabels[emo]} ${p[emo]}%</title>
+      </circle>`;
+    });
+  });
+
+  const legend = emotions.map(emo => `
+    <span class="dna-viz-emo-legend-item">
+      <span class="dna-viz-emo-legend-dot" style="background:${emotionColors[emo]}"></span>
+      ${emotionLabels[emo]}
+    </span>
+  `).join('');
+
+  const peakHtml = (emotion.peak_points || [])
+    .map(p => `<div class="dna-viz-emo-point dna-viz-emo-peak">🔺 ${p}</div>`).join('');
+  const dropHtml = (emotion.drop_points || [])
+    .map(p => `<div class="dna-viz-emo-point dna-viz-emo-drop">🔻 ${p}</div>`).join('');
+
+  return `
+    <div class="dna-viz-section">
+      <div class="dna-viz-section-header">
+        <span class="dna-viz-icon">❤️</span>
+        <span class="dna-viz-section-title">감정 DNA — 감정 흐름</span>
+      </div>
+      <div class="dna-viz-section-body">
+        <div class="dna-viz-emo-chart-wrap">
+          <svg class="dna-viz-emo-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+            ${gridLines}${xLabels}${lines}${dots}
+          </svg>
+        </div>
+        <div class="dna-viz-emo-legend">${legend}</div>
+        ${peakHtml}${dropHtml}
+      </div>
+    </div>
+  `;
+}
+
+// ─── 4. 호흡 DNA ────────────────────────────────
+function renderPaceDna(pace) {
+  const avg = pace.sentence_length_avg || 0;
+  const ratio = Math.round((pace.short_sentence_ratio || 0) * 100);
+  const qFreq = pace.question_frequency || 0;
+
+  const keywords = (pace.repetition_keywords || [])
+    .map(k => `<span class="dna-viz-tag dna-viz-tag--keyword">${k}</span>`).join('');
+  const taboos = (pace.taboo_flags || [])
+    .map(t => `<span class="dna-viz-tag dna-viz-tag--taboo">⚠ ${t}</span>`).join('');
+
+  return `
+    <div class="dna-viz-section">
+      <div class="dna-viz-section-header">
+        <span class="dna-viz-icon">💨</span>
+        <span class="dna-viz-section-title">호흡 DNA — 문장 패턴</span>
+      </div>
+      <div class="dna-viz-section-body">
+        <div class="dna-viz-pace-cards">
+          <div class="dna-viz-pace-card">
+            <div class="dna-viz-pace-num">${avg}<span class="dna-viz-pace-unit">자</span></div>
+            <div class="dna-viz-pace-label">평균 문장 길이</div>
+          </div>
+          <div class="dna-viz-pace-card">
+            <div class="dna-viz-pace-num">${ratio}<span class="dna-viz-pace-unit">%</span></div>
+            <div class="dna-viz-pace-label">짧은 문장 비율</div>
+          </div>
+          <div class="dna-viz-pace-card">
+            <div class="dna-viz-pace-num">${qFreq}<span class="dna-viz-pace-unit">회</span></div>
+            <div class="dna-viz-pace-label">질문 빈도</div>
+          </div>
+        </div>
+        <div class="dna-viz-subsection">
+          <div class="dna-viz-label">🔁 반복 키워드</div>
+          <div class="dna-viz-tags-row">${keywords}</div>
+        </div>
+        <div class="dna-viz-subsection">
+          <div class="dna-viz-label">🚫 금기 요소 (자극 포인트)</div>
+          <div class="dna-viz-tags-row">${taboos}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── 5. 제목 DNA ────────────────────────────────
+function renderTitleDna(title) {
+  const patterns = (title.title_pattern || '')
+    .split('|').map(t => t.trim()).filter(Boolean)
+    .map(t => `<span class="dna-viz-tag dna-viz-tag--title">${t}</span>`).join('');
+  const cta = (title.cta_words || [])
+    .map(w => `<span class="dna-viz-tag dna-viz-tag--cta">${w}</span>`).join('');
+
+  return `
+    <div class="dna-viz-section">
+      <div class="dna-viz-section-header">
+        <span class="dna-viz-icon">🏷️</span>
+        <span class="dna-viz-section-title">제목 DNA — 클릭 유도 패턴</span>
+      </div>
+      <div class="dna-viz-section-body">
+        <div class="dna-viz-subsection">
+          <div class="dna-viz-label">제목 패턴</div>
+          <div class="dna-viz-tags-row">${patterns}</div>
+        </div>
+        <div class="dna-viz-title-formula">
+          <div class="dna-viz-label">썸네일 텍스트 공식</div>
+          <div class="dna-viz-formula-box">${title.thumbnail_text_pattern || '없음'}</div>
+        </div>
+        <div class="dna-viz-subsection">
+          <div class="dna-viz-label">CTA 핵심 단어</div>
+          <div class="dna-viz-tags-row">${cta}</div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // ── DNA 결과 2차 모달 ─────────────────────────────────────────────────────────
@@ -2727,24 +3051,16 @@ function showDnaResultModal(dnaResponse, catX, catY, isYadam, meta, deepArea, ap
     </div>
   `).join('');
 
-  const dnaCards = [
-    { icon: '🎣', title: '훅 DNA — 도입부 전략', key: 'hook_dna' },
-    { icon: '🏗️', title: '구조 DNA — 이야기 뼈대', key: 'structure_dna' },
-    { icon: '💓', title: '감정 DNA — 감정 흐름', key: 'emotion_dna' },
-    { icon: '🫁', title: '호흡 DNA — 문장 패턴', key: 'pace_dna' },
-    { icon: '🏷️', title: '제목 DNA — 클릭 유도 패턴', key: 'title_dna' },
-  ].map(card => `
-    <div class="dna-card">
-      <div class="dna-card-header">
-        <span class="dna-card-icon">${card.icon}</span>
-        <span class="dna-card-title">${card.title}</span>
-      </div>
-      <div class="dna-card-body">${renderDnaContent(dna[card.key])}</div>
-    </div>
-  `).join('');
+  const dnaCardsHtml = renderDnaContent(dna);
 
   container.innerHTML = `
     <div class="dna-result-container">
+      <div class="dna-back-btn-area dna-back-btn-top">
+        <button class="dna-back-btn" id="dna-back-top">
+          ← 떡상 영상 TOP 10으로 돌아가기
+        </button>
+      </div>
+
       <div class="dna-result-header">
         <h3>🧬 DNA 분석 결과</h3>
         <p class="dna-result-subtitle">
@@ -2762,11 +3078,17 @@ function showDnaResultModal(dnaResponse, catX, catY, isYadam, meta, deepArea, ap
         `).join('') : ''}
       </div>
 
-      <div class="dna-cards">${dnaCards}</div>
+      <div class="dna-viz-container">${dnaCardsHtml}</div>
 
       <div class="dna-result-actions">
         <button class="spike-btn-close" id="dna-save-close-btn">DNA만 저장하고 닫기</button>
         <button class="spike-btn-analyze" id="dna-suggest-btn">✨ 주제 추천 받기</button>
+      </div>
+
+      <div class="dna-back-btn-area dna-back-btn-bottom">
+        <button class="dna-back-btn" id="dna-back-bottom">
+          ← 떡상 영상 TOP 10으로 돌아가기
+        </button>
       </div>
     </div>
   `;
@@ -2835,6 +3157,24 @@ function showDnaResultModal(dnaResponse, catX, catY, isYadam, meta, deepArea, ap
   };
 
   document.getElementById('dna-suggest-btn').addEventListener('click', doSuggest);
+
+  // ── 뒤로가기 버튼 (상단 + 하단) ──
+  const backHandler = () => {
+    showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, api);
+  };
+  const backTopBtn = document.getElementById('dna-back-top');
+  const backBottomBtn = document.getElementById('dna-back-bottom');
+  if (backTopBtn) backTopBtn.addEventListener('click', backHandler);
+  if (backBottomBtn) {
+    backBottomBtn.addEventListener('click', () => {
+      backHandler();
+      requestAnimationFrame(() => {
+        const modalTop = document.querySelector('.spike-modal-container')
+                      || document.querySelector('.chart-container');
+        if (modalTop) modalTop.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  }
 }
 
 // ── 3차 모달: 주제 추천 결과 ─────────────────────────────────────────────────
@@ -2878,6 +3218,12 @@ function showTopicResultModal(suggestResponse, dnaResponse, catX, catY, isYadam,
 
   container.innerHTML = `
     <div class="topic-result-container">
+      <div class="dna-back-btn-area dna-back-btn-top">
+        <button class="dna-back-btn" id="topic-back-top">
+          ← 떡상 영상 TOP 10으로 돌아가기
+        </button>
+      </div>
+
       <div class="topic-result-header">
         <div class="topic-result-title-row">
           <h3>✨ 추천 주제 TOP ${suggestions.length}</h3>
@@ -2903,6 +3249,12 @@ function showTopicResultModal(suggestResponse, dnaResponse, catX, catY, isYadam,
           <div class="topic-evidence-spike-list">${spikeEvidenceHtml}</div>
         </div>
       </div>
+
+      <div class="dna-back-btn-area dna-back-btn-bottom">
+        <button class="dna-back-btn" id="topic-back-bottom">
+          ← 떡상 영상 TOP 10으로 돌아가기
+        </button>
+      </div>
     </div>
   `;
 
@@ -2922,6 +3274,24 @@ function showTopicResultModal(suggestResponse, dnaResponse, catX, catY, isYadam,
     localStorage.removeItem('dnaAnalysisState');
     deepArea.querySelector('.chart-container')?.remove();
   });
+
+  // ── 뒤로가기 버튼 (상단 + 하단) ──
+  const topicBackHandler = () => {
+    showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, api);
+  };
+  const topicBackTop = document.getElementById('topic-back-top');
+  const topicBackBottom = document.getElementById('topic-back-bottom');
+  if (topicBackTop) topicBackTop.addEventListener('click', topicBackHandler);
+  if (topicBackBottom) {
+    topicBackBottom.addEventListener('click', () => {
+      topicBackHandler();
+      requestAnimationFrame(() => {
+        const modalTop = document.querySelector('.spike-modal-container')
+                      || document.querySelector('.chart-container');
+        if (modalTop) modalTop.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  }
 
   attachNewSuggestionEvents(container, api, dnaResponse, catX, isYadam);
 }
@@ -3189,15 +3559,25 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
 
     const videoItemsHtml = spikeVideos.map((v, idx) => {
       return `
-        <div class="spike-video-item" data-video-id="${v.id}">
-          <label class="spike-video-checkbox-area">
-            <input type="checkbox" class="spike-video-checkbox">
-            <span class="spike-video-rank">#${idx + 1}</span>
-          </label>
+        <div class="spike-video-item ${v.hasDna ? 'spike-video-dna-done' : ''}"
+             data-video-id="${v.id}"
+             data-has-dna="${v.hasDna ? 'true' : 'false'}">
+          ${v.hasDna
+            ? `<div class="spike-video-dna-area">
+                 <span class="spike-video-rank spike-rank-done">#${idx + 1}</span>
+                 <button class="spike-dna-view-btn" data-video-id="${v.id}">🧬 DNA 보기</button>
+               </div>`
+            : `<label class="spike-video-checkbox-area">
+                 <input type="checkbox" class="spike-video-checkbox">
+                 <span class="spike-video-rank">#${idx + 1}</span>
+               </label>`
+          }
           <div class="spike-video-info">
             <div class="spike-video-title-row">
-              <a href="https://www.youtube.com/watch?v=${v.videoId}" target="_blank" class="spike-video-title-link">${v.title}</a>
-              ${v.hasDna ? '<span class="spike-dna-badge">DNA 추출 완료</span>' : ''}
+              <a href="https://www.youtube.com/watch?v=${v.videoId}" target="_blank" onclick="event.stopPropagation()" class="spike-video-title-link">${v.title}</a>
+              ${v.hasDna
+                ? '<span class="spike-dna-badge spike-dna-badge--complete">✅ DNA 추출 완료</span>'
+                : ''}
             </div>
             <div class="spike-video-meta">
               <span class="spike-meta-channel">${v.channelName}</span>
@@ -3219,15 +3599,17 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
     deepArea.innerHTML = `
       <div class="chart-container spike-modal-container mb-24 animation-fade-in">
         <div class="spike-modal-header">
-          <h3>📊 [${catY}] 떡상 영상 TOP ${spikeVideos.length}</h3>
+          <h3>[${catY}] 떡상 영상 TOP ${spikeVideos.length}</h3>
           <p class="spike-modal-subtitle">
-            전체 ${fmt(totalVideosInCategory)}개 영상 중 떡상 조건 충족: ${fmt(totalSpikeVideos)}개 → 상위 ${spikeVideos.length}개 표시
+            <span class="spike-modal-stats">
+              ${fmt(totalVideosInCategory)}개 영상 ｜ 떡상 조건 충족: ${fmt(totalSpikeVideos)}개 영상 ｜ 상위 ${spikeVideos.length}개 표시
+            </span>
           </p>
         </div>
 
         <div class="spike-modal-guide">
           <span class="spike-modal-guide-icon">💡</span>
-          <span>DNA 분석할 영상을 최대 2개 선택하세요. 영상 제목을 클릭하면 YouTube에서 확인할 수 있습니다.</span>
+          <span>DNA 분석할 영상을 최대 2개 선택하세요.<br>영상 제목을 클릭하면 YouTube에서 확인할 수 있습니다.</span>
         </div>
 
         <div class="spike-modal-char-count" id="spike-char-counter">
@@ -3236,6 +3618,26 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
 
         <div class="spike-video-list" id="spike-video-list">
           ${videoItemsHtml}
+        </div>
+
+        <div class="spike-dna-history-area" id="spike-dna-history">
+          <div class="spike-dna-history-toggle"
+               onclick="
+                 const body = document.getElementById('spike-dna-history-body');
+                 const arrow = this.querySelector('.spike-history-arrow');
+                 if (body.style.display === 'none') {
+                   body.style.display = 'block';
+                   arrow.textContent = '▾';
+                   if (!body.dataset.loaded) { loadDnaHistoryInModal(); }
+                 } else {
+                   body.style.display = 'none';
+                   arrow.textContent = '▸';
+                 }
+               ">
+            <span>🧬 이전 DNA 분석 이력</span>
+            <span class="spike-history-arrow">▸</span>
+          </div>
+          <div id="spike-dna-history-body" style="display:none"></div>
         </div>
 
         <div class="spike-modal-actions">
@@ -3257,9 +3659,81 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
     } catch(e) {}
 
     // ── 체크박스 이벤트 바인딩 ──────────────────────────────────────────
+    const modalContainer = deepArea.querySelector('.spike-modal-container');
     const list = deepArea.querySelector('#spike-video-list');
     const analyzeBtn = deepArea.querySelector('#spike-analyze-btn');
     const charCounter = deepArea.querySelector('#spike-char-counter');
+
+    async function loadDnaHistoryInModal() {
+      const body = document.getElementById('spike-dna-history-body');
+      body.dataset.loaded = 'true';
+      body.innerHTML = '<div class="dna-history-loading">'
+        + '<div class="spike-loading-spinner"></div>'
+        + '<span>이력을 불러오는 중...</span></div>';
+
+      try {
+        const data = await api.getDnaHistory(catX);
+        const history = data.history || [];
+
+        if (history.length === 0) {
+          body.innerHTML = '<div class="dna-history-empty">이 카테고리에 저장된 DNA가 없습니다.</div>';
+          return;
+        }
+
+        body.innerHTML = history.map(h => {
+          const titles = JSON.parse(h.video_titles || '[]');
+          const channels = JSON.parse(h.channel_names || '[]');
+          return `
+            <div class="dna-history-card" data-dna-id="${h.id}">
+              <div class="dna-history-card-top">
+                <span class="dna-history-card-category">${h.category}</span>
+                <span class="dna-history-card-date">${h.created_at}</span>
+              </div>
+              <div class="dna-history-card-videos">
+                ${titles.map((t, i) => `
+                  <div class="dna-history-card-video">
+                    <span class="dna-history-card-channel">${channels[i] || ''}</span>
+                    <span class="dna-history-card-title">${t}</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        body.querySelectorAll('.dna-history-card').forEach(card => {
+          card.addEventListener('click', async () => {
+            const dnaId = card.dataset.dnaId;
+            card.style.opacity = '0.5';
+            card.style.pointerEvents = 'none';
+
+            try {
+              const dnaData = await api.getDnaDetail(dnaId);
+              const dnaResponse = {
+                dna: dnaData.dna,
+                sourceVideos: dnaData.videoTitles.map((title, i) => ({
+                  id: dnaData.videoIds[i],
+                  title,
+                  channelName: dnaData.channelNames[i] || '',
+                  transcriptLength: 0,
+                  transcriptCollected: false
+                })),
+                isNewExtraction: false,
+                category: dnaData.category
+              };
+              showDnaResultModal(dnaResponse, catX, catY, isYadam, meta, deepArea, api, spikeVideos);
+            } catch (err) {
+              alert('DNA 조회 실패: ' + err.message);
+              card.style.opacity = '1';
+              card.style.pointerEvents = 'auto';
+            }
+          });
+        });
+
+      } catch (err) {
+        body.innerHTML = '<div class="dna-history-error">이력 조회 실패: ' + err.message + '</div>';
+      }
+    }
 
     list.addEventListener('change', (e) => {
       if (!e.target.classList.contains('spike-video-checkbox')) return;
@@ -3290,6 +3764,56 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
       // 분석 버튼 상태
       analyzeBtn.disabled = checkedCount === 0;
       analyzeBtn.textContent = `DNA 분석 시작 (${checkedCount}개 선택)`;
+    });
+
+    // ── DNA 보기 버튼 클릭 ───────────────────────────────────────────
+    modalContainer.querySelectorAll('.spike-dna-view-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const videoId = parseInt(btn.dataset.videoId);
+
+        btn.disabled = true;
+        btn.textContent = '불러오는 중...';
+
+        try {
+          const historyResp = await api.getDnaHistory();
+          const allHistory = historyResp.history || [];
+
+          let targetDnaId = null;
+          for (const h of allHistory) {
+            const ids = JSON.parse(h.video_ids || '[]');
+            if (ids.includes(videoId)) { targetDnaId = h.id; break; }
+          }
+
+          if (!targetDnaId) {
+            btn.textContent = '🧬 DNA 보기';
+            btn.disabled = false;
+            alert('저장된 DNA를 찾을 수 없습니다.');
+            return;
+          }
+
+          const dnaData = await api.getDnaDetail(targetDnaId);
+          const dnaResponse = {
+            dna: dnaData.dna,
+            sourceVideos: dnaData.videoTitles.map((title, i) => ({
+              id: dnaData.videoIds[i],
+              title,
+              channelName: dnaData.channelNames[i] || '',
+              transcriptLength: 0,
+              transcriptCollected: false
+            })),
+            isNewExtraction: false,
+            category: dnaData.category
+          };
+
+          showDnaResultModal(dnaResponse, catX, catY, isYadam, meta, deepArea, api, spikeVideos);
+        } catch (err) {
+          console.error('DNA 조회 실패:', err);
+          btn.textContent = '🧬 DNA 보기';
+          btn.disabled = false;
+          alert('DNA 조회 실패: ' + err.message);
+        }
+      });
     });
 
     // ── DNA 분석 시작 버튼 ────────────────────────────────────────────
@@ -3354,4 +3878,104 @@ export async function showSpikeVideoModal(catX, catY, isYadam, meta, deepArea, a
       </div>
     `;
   }
+}
+
+// ── DNA 이력 섹션 ──────────────────────────────────────────────────────────────
+function renderDnaHistorySection(container, api) {
+  if (document.querySelector('.dna-history-section')) return;
+
+  const section = document.createElement('div');
+  section.className = 'dna-history-section';
+  section.innerHTML = `
+    <div class="dna-history-header"
+         onclick="this.parentElement.classList.toggle('expanded')">
+      <span class="dna-history-icon">🧬</span>
+      <span class="dna-history-title">DNA 분석 이력</span>
+      <span class="dna-history-count" id="dna-history-count">불러오는 중...</span>
+      <span class="dna-history-arrow">▸</span>
+    </div>
+    <div class="dna-history-body" id="dna-history-body">
+      <div class="dna-history-loading">
+        <div class="spike-loading-spinner"></div>
+        <span>이력을 불러오는 중...</span>
+      </div>
+    </div>
+  `;
+
+  container.appendChild(section);
+
+  section.querySelector('.dna-history-header')
+    .addEventListener('click', async function handler() {
+      const body = document.getElementById('dna-history-body');
+      if (body.dataset.loaded === 'true') return;
+
+      try {
+        const data = await api.getDnaHistory();
+        const history = data.history || [];
+
+        document.getElementById('dna-history-count').textContent = `${history.length}건`;
+
+        if (history.length === 0) {
+          body.innerHTML = `
+            <div class="dna-history-empty">
+              아직 저장된 DNA 분석 결과가 없습니다.<br>
+              포화 카테고리에서 떡상 영상을 선택하여 DNA 분석을 실행하세요.
+            </div>`;
+        } else {
+          body.innerHTML = history.map(h => {
+            const titles = JSON.parse(h.video_titles || '[]');
+            const channels = JSON.parse(h.channel_names || '[]');
+            return `
+              <div class="dna-history-card" data-dna-id="${h.id}">
+                <div class="dna-history-card-top">
+                  <span class="dna-history-card-category">${h.category}</span>
+                  <span class="dna-history-card-date">${h.created_at || ''}</span>
+                </div>
+                <div class="dna-history-card-videos">
+                  ${titles.map((t, i) => `
+                    <div class="dna-history-card-video">
+                      <span class="dna-history-card-channel">${channels[i] || ''}</span>
+                      <span class="dna-history-card-title">${t}</span>
+                    </div>
+                  `).join('')}
+                </div>
+                <div class="dna-history-card-detail" id="dna-detail-${h.id}" style="display:none"></div>
+              </div>
+            `;
+          }).join('');
+
+          body.querySelectorAll('.dna-history-card').forEach(card => {
+            card.addEventListener('click', async () => {
+              const dnaId = card.dataset.dnaId;
+              const detail = document.getElementById(`dna-detail-${dnaId}`);
+
+              if (detail.style.display !== 'none') {
+                detail.style.display = 'none';
+                return;
+              }
+              if (detail.dataset.loaded === 'true') {
+                detail.style.display = 'block';
+                return;
+              }
+
+              detail.style.display = 'block';
+              detail.innerHTML = `<div class="dna-history-loading"><div class="spike-loading-spinner"></div></div>`;
+
+              try {
+                const data = await api.getDnaDetail(dnaId);
+                detail.innerHTML = `<div class="dna-viz-container">${renderDnaContent(data.dna)}</div>`;
+                detail.dataset.loaded = 'true';
+              } catch (err) {
+                detail.innerHTML = `<div class="dna-history-error">DNA 상세 로드 실패: ${err.message}</div>`;
+              }
+            });
+          });
+        }
+
+        body.dataset.loaded = 'true';
+      } catch (err) {
+        const body = document.getElementById('dna-history-body');
+        body.innerHTML = `<div class="dna-history-error">이력 조회 실패: ${err.message}</div>`;
+      }
+    });
 }

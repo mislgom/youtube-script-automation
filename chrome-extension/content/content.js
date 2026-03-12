@@ -52,7 +52,6 @@ async function injectVideoPageButtons() {
     container.className = 'yta-ext-btn';
     container.innerHTML = `
     <button class="yta-btn yta-add-btn" title="이 영상을 DB에 추가">🎬 수집</button>
-    <button class="yta-btn yta-compare-btn" title="이 영상 주제로 빠른 비교">🔍 비교</button>
   `;
 
     // Insert after title
@@ -86,30 +85,6 @@ async function injectVideoPageButtons() {
         }
     });
 
-    // Compare button
-    container.querySelector('.yta-compare-btn').addEventListener('click', async () => {
-        const title = titleEl.textContent.trim();
-        const btn = container.querySelector('.yta-compare-btn');
-        btn.textContent = '⏳';
-        btn.disabled = true;
-        try {
-            const res = await fetch(`${SERVER_URL}/api/analysis/compare`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title, mode: 'quick' })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                showComparePopup(data, title);
-                btn.textContent = '🔍 비교';
-                btn.disabled = false;
-            }
-        } catch (e) {
-            btn.textContent = '🔍 비교';
-            btn.disabled = false;
-            alert('서버 연결 실패. 웹 앱이 실행 중인지 확인하세요.');
-        }
-    });
 }
 
 function injectChannelPageButton() {
@@ -153,42 +128,6 @@ function injectChannelPageButton() {
     });
 
     headerEl.appendChild(btn);
-}
-
-function showComparePopup(data, title) {
-    // Remove existing popup
-    document.querySelector('.yta-popup')?.remove();
-
-    const level = data.level || 'safe';
-    const levelText = { safe: '✅ 참신', caution: '⚠️ 주의', danger: '🔴 위험' };
-    const levelColor = { safe: '#059669', caution: '#d97706', danger: '#dc2626' };
-
-    const popup = document.createElement('div');
-    popup.className = 'yta-popup';
-    popup.innerHTML = `
-    <div class="yta-popup-header">
-      <span>🔍 주제 유사도 분석</span>
-      <button class="yta-popup-close">✕</button>
-    </div>
-    <div class="yta-popup-body">
-      <div style="text-align:center;margin-bottom:12px;">
-        <div style="font-size:2rem;font-weight:800;color:${levelColor[level]};">${data.maxSimilarity}%</div>
-        <div style="font-size:0.85rem;color:${levelColor[level]};">${levelText[level]}</div>
-        <div style="font-size:0.72rem;color:#888;margin-top:4px;">${data.totalCompared}개 영상과 비교</div>
-      </div>
-      ${data.results.slice(0, 5).map((r, i) => `
-        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #333;font-size:0.78rem;">
-          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${i + 1}. ${r.title}</span>
-          <span style="font-weight:700;color:${r.similarity >= 60 ? '#dc2626' : r.similarity >= 30 ? '#d97706' : '#059669'};margin-left:8px;">${r.similarity}%</span>
-        </div>
-      `).join('')}
-    </div>
-  `;
-
-    document.body.appendChild(popup);
-    popup.querySelector('.yta-popup-close').addEventListener('click', () => popup.remove());
-    // Auto-close after 15s
-    setTimeout(() => popup.remove(), 15000);
 }
 
 function waitForElement(selector, timeout = 5000) {

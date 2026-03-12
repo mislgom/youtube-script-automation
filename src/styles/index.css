@@ -1741,8 +1741,11 @@ select {
 /* ===== DNA 결과 모달 (2차 모달) ===== */
 
 .dna-result-container {
-  max-width: 780px;
+  max-width: 840px;
   margin: 0 auto;
+  font-size: 15px;
+  color: var(--text-primary);
+  line-height: 1.7;
 }
 
 .dna-result-header {
@@ -1750,13 +1753,13 @@ select {
 }
 
 .dna-result-header h3 {
-  font-size: 1.15rem;
+  font-size: 1.4rem;
   font-weight: 800;
   margin-bottom: 6px;
 }
 
 .dna-result-subtitle {
-  font-size: 0.82rem;
+  font-size: 0.95rem;
   color: var(--text-secondary);
 }
 
@@ -2405,3 +2408,404 @@ select {
   border-radius: 0 4px 4px 0;
   line-height: 1.4;
 }
+
+/* ===== DNA 시각화 (dna-viz) — 2026-03-12 전면 개선 ===== */
+
+.dna-viz-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  font-size: 15px;
+  color: var(--text-primary);
+  line-height: 1.7;
+}
+
+/* ── 섹션 공통 ── */
+.dna-viz-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.dna-viz-section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 24px;
+  background: linear-gradient(
+    135deg,
+    rgba(124,92,255,0.1) 0%,
+    rgba(124,92,255,0.03) 100%
+  );
+  border-bottom: 1px solid var(--border);
+}
+
+.dna-viz-icon {
+  font-size: 26px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+}
+
+.dna-viz-section-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+}
+
+.dna-viz-section-body {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.dna-viz-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  letter-spacing: 0.3px;
+}
+
+.dna-viz-subsection {
+  padding-top: 12px;
+}
+
+/* ── 태그 공통 ── */
+.dna-viz-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dna-viz-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dna-viz-tag--hook   { background: rgba(248,113,113,0.15); color: var(--danger);       border: 1px solid rgba(248,113,113,0.3); }
+.dna-viz-tag--struct { background: rgba(124,92,255,0.12);  color: var(--accent-light); border: 1px solid rgba(124,92,255,0.25); }
+.dna-viz-tag--keyword{ background: rgba(52,211,153,0.12);  color: var(--success);      border: 1px solid rgba(52,211,153,0.25); }
+.dna-viz-tag--taboo  { background: rgba(251,191,36,0.12);  color: var(--warning);      border: 1px solid rgba(251,191,36,0.25); }
+.dna-viz-tag--title  { background: rgba(96,165,250,0.12);  color: #60a5fa;             border: 1px solid rgba(96,165,250,0.25); }
+.dna-viz-tag--cta    { background: rgba(157,133,255,0.12); color: var(--accent-light); border: 1px solid rgba(157,133,255,0.25); }
+
+/* ── 훅 DNA ── */
+.dna-viz-hook-top {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.dna-viz-gauge-wrap { flex-shrink: 0; }
+.dna-viz-gauge { width: 120px; height: 120px; }
+.dna-viz-hook-types { flex: 1; }
+
+.dna-viz-hook-sentence {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  margin-bottom: 8px;
+  background: rgba(124,92,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.dna-viz-hook-num {
+  flex-shrink: 0;
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px; font-weight: 700;
+}
+
+.dna-viz-hook-text { font-size: 15px; color: var(--text-primary); line-height: 1.7; }
+
+.dna-viz-loop-list { list-style: none; padding: 0; margin: 0; }
+.dna-viz-loop-list li {
+  position: relative;
+  padding: 8px 0 8px 28px;
+  font-size: 15px; color: var(--text-primary); line-height: 1.6;
+}
+.dna-viz-loop-list li::before { content: '🔓'; position: absolute; left: 0; top: 8px; font-size: 14px; }
+
+/* ── 구조 DNA 타임라인 ── */
+.dna-viz-timeline-wrap { position: relative; margin: 16px 0 24px; }
+
+.dna-viz-timeline-bar {
+  display: flex; height: 48px;
+  border-radius: 12px; overflow: hidden; gap: 2px;
+}
+
+.dna-viz-timeline-seg {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: #fff; font-weight: 600;
+  cursor: default; transition: opacity 0.2s; min-width: 48px;
+}
+.dna-viz-timeline-seg:hover { opacity: 0.85; }
+.dna-viz-timeline-seg-label { font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+.dna-viz-timeline-seg-pct   { font-size: 11px; opacity: 0.85; }
+
+.dna-viz-climax-marker { position: absolute; top: -10px; transform: translateX(-50%); }
+.dna-viz-climax-line   { width: 3px; height: 68px; background: var(--danger); margin: 0 auto; border-radius: 2px; }
+.dna-viz-climax-label  { font-size: 12px; color: var(--danger); font-weight: 700; text-align: center; white-space: nowrap; margin-top: 4px; }
+
+.dna-viz-struct-details { display: flex; flex-direction: column; gap: 6px; }
+
+.dna-viz-struct-detail { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+
+.dna-viz-struct-detail-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; cursor: pointer; transition: background 0.2s;
+}
+.dna-viz-struct-detail-header:hover { background: rgba(124,92,255,0.05); }
+
+.dna-viz-struct-dot   { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.dna-viz-struct-name  { font-size: 15px; font-weight: 700; color: var(--text-primary); flex: 1; }
+.dna-viz-struct-pct   { font-size: 14px; color: var(--text-muted); font-weight: 600; }
+.dna-viz-struct-arrow { font-size: 14px; color: var(--text-muted); transition: transform 0.2s; }
+.dna-viz-struct-detail.expanded .dna-viz-struct-arrow { transform: rotate(90deg); }
+
+.dna-viz-struct-detail-body { display: none; padding: 0 16px 14px; }
+.dna-viz-struct-detail.expanded .dna-viz-struct-detail-body { display: block; }
+
+.dna-viz-struct-row { display: flex; gap: 10px; padding: 6px 0; font-size: 14px; }
+.dna-viz-struct-key { flex-shrink: 0; width: 72px; color: var(--text-muted); font-weight: 700; }
+.dna-viz-struct-val { color: var(--text-primary); line-height: 1.6; }
+
+/* ── 감정 DNA 차트 ── */
+.dna-viz-emo-chart-wrap {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 14px; padding: 20px; overflow-x: auto;
+}
+.dna-viz-emo-chart { width: 100%; max-width: 560px; height: auto; display: block; margin: 0 auto; }
+
+.dna-viz-emo-legend { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; padding-top: 12px; }
+.dna-viz-emo-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--text-secondary); }
+.dna-viz-emo-legend-dot { width: 12px; height: 12px; border-radius: 50%; }
+
+.dna-viz-emo-point { padding: 10px 16px; border-radius: 10px; font-size: 14px; line-height: 1.6; color: var(--text-primary); }
+.dna-viz-emo-peak { background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2); }
+.dna-viz-emo-drop { background: rgba(96,165,250,0.08);  border: 1px solid rgba(96,165,250,0.2);  }
+
+/* ── 호흡 DNA 카드 ── */
+.dna-viz-pace-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+
+.dna-viz-pace-card {
+  text-align: center; padding: 20px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border); border-radius: 14px;
+}
+.dna-viz-pace-num  { font-size: 34px; font-weight: 800; color: var(--accent); line-height: 1.2; }
+.dna-viz-pace-unit { font-size: 16px; font-weight: 600; color: var(--text-muted); margin-left: 2px; }
+.dna-viz-pace-label{ font-size: 13px; color: var(--text-muted); margin-top: 6px; font-weight: 600; }
+
+/* ── 제목 DNA ── */
+.dna-viz-title-formula { }
+.dna-viz-formula-box {
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(96,165,250,0.1) 0%, rgba(124,92,255,0.1) 100%);
+  border: 1px solid var(--border); border-radius: 12px;
+  font-size: 16px; font-weight: 700; color: var(--text-primary); text-align: center; letter-spacing: 0.3px;
+}
+
+/* ===== DNA 이력 섹션 ===== */
+
+.dna-history-section {
+  margin-top: 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px; overflow: hidden;
+}
+
+.dna-history-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 20px; cursor: pointer;
+  background: var(--bg-card); transition: background 0.2s;
+}
+.dna-history-header:hover { background: rgba(124,92,255,0.04); }
+
+.dna-history-icon  { font-size: 20px; }
+.dna-history-title { font-size: 15px; font-weight: 700; color: var(--text-primary); flex: 1; }
+.dna-history-count { font-size: 12px; color: var(--text-muted); background: var(--bg-secondary); padding: 2px 10px; border-radius: 12px; }
+.dna-history-arrow { font-size: 14px; color: var(--text-muted); transition: transform 0.3s; }
+.dna-history-section.expanded .dna-history-arrow { transform: rotate(90deg); }
+
+.dna-history-body {
+  display: none; padding: 16px 20px;
+  max-height: 600px; overflow-y: auto;
+}
+.dna-history-section.expanded .dna-history-body { display: block; }
+
+.dna-history-loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 24px; color: var(--text-muted); font-size: 13px; }
+.dna-history-empty   { text-align: center; padding: 32px; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+.dna-history-error   { text-align: center; padding: 16px; color: var(--danger); font-size: 13px; }
+
+.dna-history-card {
+  padding: 14px 16px;
+  border: 1px solid var(--border); border-radius: 12px;
+  margin-bottom: 8px; cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.dna-history-card:hover { border-color: var(--accent); background: rgba(124,92,255,0.03); }
+
+.dna-history-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.dna-history-card-category { font-size: 11px; font-weight: 700; color: var(--accent); background: rgba(124,92,255,0.1); padding: 2px 10px; border-radius: 10px; }
+.dna-history-card-date { font-size: 11px; color: var(--text-muted); }
+
+.dna-history-card-videos { display: flex; flex-direction: column; gap: 4px; }
+.dna-history-card-video  { display: flex; gap: 8px; font-size: 12px; }
+.dna-history-card-channel{ color: var(--text-muted); flex-shrink: 0; min-width: 80px; }
+.dna-history-card-title  { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dna-history-card-detail { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+
+/* ===== 떡상 모달 DNA 완료 영상 ===== */
+
+.spike-video-dna-done {
+  border-color: var(--success) !important;
+  background: rgba(52,211,153,0.04) !important;
+}
+
+.spike-video-dna-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 64px;
+  padding-right: 12px;
+}
+
+.spike-rank-done {
+  color: var(--success) !important;
+  font-weight: 800;
+}
+
+.spike-dna-view-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--success);
+  border-radius: 8px;
+  background: rgba(52,211,153,0.1);
+  color: var(--success);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.spike-dna-view-btn:hover { background: rgba(52,211,153,0.2); transform: translateY(-1px); }
+.spike-dna-view-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.spike-dna-badge--complete {
+  background: rgba(52,211,153,0.12) !important;
+  color: var(--success) !important;
+  border: 1px solid rgba(52,211,153,0.3) !important;
+}
+
+/* ===== 모달 내 DNA 이력 ===== */
+
+.spike-dna-history-area {
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.spike-dna-history-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: background 0.2s;
+}
+.spike-dna-history-toggle:hover { background: rgba(124,92,255,0.04); }
+
+.spike-history-arrow { font-size: 12px; color: var(--text-muted); }
+
+#spike-dna-history-body {
+  padding: 0 16px 16px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+#spike-dna-history-body .dna-history-card { margin-bottom: 8px; }
+#spike-dna-history-body .dna-history-empty { text-align: center; padding: 20px; color: var(--text-muted); font-size: 12px; }
+
+/* ===== DNA/주제 모달 뒤로가기 버튼 ===== */
+
+.dna-back-btn-area {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.dna-back-btn-top {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dna-back-btn-bottom {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.dna-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.dna-back-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(124,92,255,0.08);
+  transform: translateX(-3px);
+}
+.dna-back-btn:active { transform: translateX(0); }
+
+.spike-modal-stats {
+  display: inline-block;
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--warning);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 4px 14px;
+  border-radius: 8px;
+  text-align: center;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+/* 헤더 제목 + 통계 배지 가운데 정렬 */
+.spike-modal-header {
+  text-align: center;
+}
+.spike-modal-subtitle {
+  text-align: center;
+}
+

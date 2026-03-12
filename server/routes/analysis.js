@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import { queryAll, queryOne, runSQL, runSQLNoSave, saveDB } from '../db.js';
 import { getBackgroundStatus, startBackgroundWorker, stopBackgroundWorker } from '../services/background-worker.js';
-import { compareTexts, getTopKeywords } from '../services/similarity.js';
-import { callGemini, compareWithGemini, suggestTopics, analyzeComments, generateBenchmarkReport, generateUniqueSkeleton, deepSuggestTopics, editScript } from '../services/gemini-service.js';
+import { callGemini, suggestTopics, analyzeComments, generateBenchmarkReport, generateUniqueSkeleton, deepSuggestTopics, editScript } from '../services/gemini-service.js';
 import { buildGapMatrix, buildYadamGapMatrix, getEconomyTrendAnalysis, getCategoryDistribution, getCategoryGroups, getTrends, getTrendsByCategory, getNicheDetailGrid } from '../services/gap-analyzer.js';
 import { fetchComments } from '../services/youtube-fetcher.js';
 import { fetchTranscript } from '../services/transcript-fetcher.js';
@@ -43,123 +42,6 @@ router.get('/categories', (req, res) => {
             for (const g of groups) { result[g] = getCategoryDistribution(g); }
             res.json({ groups, distributions: result });
         }
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// POST /api/analysis/compare — compare a new idea with existing videos
-router.post('/compare', async (req, res) => {
-    try {
-        const { title, description = '', mode = 'detailed', channel_ids } = req.body;
-        if (!title) return res.status(400).json({ error: '주제 제목을 입력해주세요.' });
-
-        // Get all videos (or filtered by channels)
-        let videos;
-        if (channel_ids && channel_ids.length > 0) {
-            const placeholders = channel_ids.map(() => '?').join(',');
-            videos = queryAll(`SELECT id, title, description, transcript_keywords, transcript_summary FROM videos WHERE channel_id IN (${placeholders})`, channel_ids);
-        } else {
-            videos = queryAll('SELECT id, title, description, transcript_keywords, transcript_summary FROM videos');
-        }
-
-        if (videos.length === 0) {
-            return res.json({ maxSimilarity: 0, results: [], message: '비교할 영상이 없습니다. 먼저 채널을 등록하고 영상을 수집해주세요.' });
-        }
-
-        // Phase 1: TF-IDF (fast, all videos)
-        const searchText = mode === 'keywords' ? title : `${title} ${description}`;
-        const tfidfResults = compareTexts(searchText, videos);
-
-        // Phase 2: Gemini AI (precise, top 30 only)
-        const top30 = tfidfResults.slice(0, 30);
-        const top30Full = top30.map(r => {
-            const vid = videos.find(v => v.id === r.id);
-            return { ...r, ...vid };
-        });
-
-        let geminiResults = [];
-        try {
-            const rawResults = await compareWithGemini(title, description, top30Full);
-            if (Array.isArray(rawResults)) {
-                geminiResults = rawResults;
-            } else if (rawResults && rawResults.errorType) {
-                // Return error to frontend if it's a quota issue
-                if (rawResults.errorType === 'QUOTA_EXCEEDED') {
-                    return res.status(429).json({ error: 'QUOTA_EXCEEDED', message: 'API 사용량이 초과되었습니다.' });
-                }
-            }
-        } catch (e) {
-            // Gemini fail → use TF-IDF only
-        }
-
-        // Merge results: prefer Gemini scores if available
-        const finalResults = top30.map(r => {
-            const gResult = geminiResults.find(g => String(g.id) === String(r.id));
-            const vid = queryOne(`
-        SELECT v.*, c.name as channel_name FROM videos v 
-        LEFT JOIN channels c ON v.channel_id = c.id WHERE v.id = ?
-      `, [r.id]);
-            return {
-                id: r.id,
-                title: r.title,
-                channel_name: vid?.channel_name || '',
-                video_id: vid?.video_id || '',
-                published_at: vid?.published_at || '',
-                view_count: vid?.view_count || 0,
-                thumbnail_url: vid?.thumbnail_url || '',
-                similarity: gResult ? gResult.score : r.similarity,
-                reason: gResult?.reason || '',
-                overlap_details: gResult?.overlap_details || '',
-                source: gResult ? 'ai' : 'tfidf'
-            };
-        });
-
-        finalResults.sort((a, b) => b.similarity - a.similarity);
-        const top10 = finalResults.slice(0, 10);
-        const maxSimilarity = top10.length > 0 ? top10[0].similarity : 0;
-
-        // Find common keywords (Prioritize AI-extracted keywords to prevent "아이" -> "천재 아이" mismatch)
-        const commonKeywordsNormalized = new Set();
-        const commonKeywordsOriginal = [];
-        const normalize = (s) => s.replace(/\s+/g, '').trim();
-
-        // 1. AI가 직접 뽑아준 키워드들을 우선 사용
-        geminiResults.forEach(gr => {
-            if (gr.common_keywords && Array.isArray(gr.common_keywords)) {
-                gr.common_keywords.forEach(kw => {
-                    const norm = normalize(kw);
-                    if (norm && !commonKeywordsNormalized.has(norm)) {
-                        commonKeywordsNormalized.add(norm);
-                        commonKeywordsOriginal.push(kw.trim());
-                    }
-                });
-            }
-        });
-
-        // 2. 만약 AI 결과가 없거나 부족할 때만 기존 방식으로 보조 (단, 더 엄격하게)
-        if (commonKeywordsOriginal.length === 0) {
-            const normalizedNew = searchText.split(/\s+/).filter(w => w.length >= 2).map(normalize);
-            for (const result of top10.slice(0, 3)) {
-                const vid = videos.find(v => v.id === result.id);
-                if (vid?.transcript_keywords) {
-                    vid.transcript_keywords.split(',').forEach(kw => {
-                        const cleanKw = kw.trim();
-                        const norm = normalize(cleanKw);
-                        if (normalizedNew.includes(norm) && !commonKeywordsNormalized.has(norm)) {
-                            commonKeywordsNormalized.add(norm);
-                            commonKeywordsOriginal.push(cleanKw);
-                        }
-                    });
-                }
-            }
-        }
-
-        res.json({
-            maxSimilarity,
-            level: maxSimilarity >= 60 ? 'danger' : maxSimilarity >= 30 ? 'caution' : 'safe',
-            results: top10,
-            commonKeywords: commonKeywordsOriginal.slice(0, 10),
-            totalCompared: videos.length
-        });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1209,6 +1091,7 @@ router.get('/sub-category-progress', (req, res) => {
         const totalRow = queryOne(`
             SELECT COUNT(DISTINCT v.video_id) as cnt
             FROM videos v
+            JOIN channels ch ON v.channel_id = ch.id AND ch.group_tag = '야담'
             JOIN video_categories vc ON v.id = vc.video_id
             JOIN categories c ON vc.category_id = c.id
             WHERE c.group_name = '사건유형'
@@ -1218,6 +1101,7 @@ router.get('/sub-category-progress', (req, res) => {
             FROM video_sub_categories
             WHERE video_id IN (
                 SELECT v.video_id FROM videos v
+                JOIN channels ch ON v.channel_id = ch.id AND ch.group_tag = '야담'
                 JOIN video_categories vc ON v.id = vc.video_id
                 JOIN categories c ON vc.category_id = c.id
                 WHERE c.group_name = '사건유형'
@@ -1808,6 +1692,55 @@ router.post('/gaps/suggest-topics', async (req, res) => {
         console.error('[suggestTopics] 오류:', err.message);
         const status = err.status || 500;
         res.status(status).json({ error: err.message });
+    }
+});
+
+// ─── DNA 이력 조회 ──────────────────────────────
+router.get('/gaps/dna-history', (req, res) => {
+    try {
+        const { category } = req.query;
+        let rows;
+        if (category && category.trim() !== '') {
+            rows = queryAll(
+                `SELECT id, video_ids, video_titles, channel_names,
+                        category, LENGTH(dna_json) AS json_length, created_at
+                 FROM video_dna WHERE category = ? ORDER BY created_at DESC`,
+                [category.trim()]
+            );
+        } else {
+            rows = queryAll(
+                `SELECT id, video_ids, video_titles, channel_names,
+                        category, LENGTH(dna_json) AS json_length, created_at
+                 FROM video_dna ORDER BY created_at DESC`
+            );
+        }
+        res.json({ history: rows || [] });
+    } catch (err) {
+        console.error('DNA 이력 조회 오류:', err);
+        res.status(500).json({ error: 'DNA 이력 조회 실패' });
+    }
+});
+
+// ─── DNA 상세 조회 ──────────────────────────────
+router.get('/gaps/dna-history/:id', (req, res) => {
+    try {
+        const { id } = req.params;
+        const row = queryOne(`SELECT * FROM video_dna WHERE id = ?`, [id]);
+        if (!row) {
+            return res.status(404).json({ error: '해당 DNA를 찾을 수 없습니다' });
+        }
+        res.json({
+            id: row.id,
+            videoIds: JSON.parse(row.video_ids || '[]'),
+            videoTitles: JSON.parse(row.video_titles || '[]'),
+            channelNames: JSON.parse(row.channel_names || '[]'),
+            category: row.category,
+            dna: JSON.parse(row.dna_json || '{}'),
+            createdAt: row.created_at
+        });
+    } catch (err) {
+        console.error('DNA 상세 조회 오류:', err);
+        res.status(500).json({ error: 'DNA 상세 조회 실패' });
     }
 });
 

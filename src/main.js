@@ -6,7 +6,7 @@ import { renderDashboard } from './pages/dashboard.js';
 import { renderSearch } from './pages/search.js';
 import { renderChannels } from './pages/channels.js';
 import { renderVideos } from './pages/videos.js';
-import { renderCompare } from './pages/compare.js';
+
 import { renderGaps } from './pages/gaps.js';
 import { renderIdeas } from './pages/ideas.js';
 import { renderSkeleton } from './pages/skeleton.js';
@@ -18,7 +18,7 @@ const routes = {
     '/search': renderSearch,
     '/channels': renderChannels,
     '/videos': renderVideos,
-    '/compare': renderCompare,
+
     '/gaps': renderGaps,
     '/ideas': renderIdeas,
     '/skeleton': renderSkeleton,

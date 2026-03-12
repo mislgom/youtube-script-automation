@@ -403,65 +403,50 @@ router.get('/unclassified-count', (req, res) => {
 
 // ─────────────────────────────────────────────
 // POST /api/dna/batch-classify
-// 미분류 영상 최대 20개를 Gemini 1회 호출로 일괄 분류
+// 모든 카테고리의 미분류 영상을 100개씩 Gemini 1회 호출로 일괄 분류
 // ─────────────────────────────────────────────
 router.post('/batch-classify', async (req, res) => {
     try {
-        // 1. 미분류 영상 최대 100개 조회 (첫 번째 카테고리 기준)
-        let targetCat = null;
-        let videos = [];
+        // 1. 모든 카테고리에서 미분류 (영상, 카테고리) 쌍 최대 100개 조회
+        const pairs = queryAll(`
+            SELECT DISTINCT v.id, v.video_id, v.title, c.name as cat_name
+            FROM videos v
+            JOIN channels ch ON v.channel_id = ch.id AND ch.group_tag = '야담'
+            JOIN video_categories vc ON v.id = vc.video_id
+            JOIN categories c ON vc.category_id = c.id AND c.group_name = '사건유형'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM video_sub_categories vsc
+                JOIN sub_categories sc ON vsc.sub_category_id = sc.id
+                WHERE vsc.video_id = v.video_id AND sc.parent_category_name = c.name
+            )
+            ORDER BY c.name, v.video_id
+            LIMIT 100
+        `);
 
-        for (const catName of Object.keys(SUB_CAT_MAP)) {
-            const catRow = queryOne("SELECT id FROM categories WHERE name = ? AND group_name = '사건유형'", [catName]);
-            if (!catRow) continue;
-
-            const found = queryAll(`
-                SELECT DISTINCT v.id, v.video_id, v.title
-                FROM videos v
-                JOIN channels ch ON v.channel_id = ch.id AND ch.group_tag = '야담'
-                JOIN video_categories vc ON v.id = vc.video_id AND vc.category_id = ?
-                WHERE v.video_id NOT IN (
-                    SELECT vsc.video_id FROM video_sub_categories vsc
-                    JOIN sub_categories sc ON vsc.sub_category_id = sc.id
-                    WHERE sc.parent_category_name = ?
-                )
-                LIMIT 100
-            `, [catRow.id, catName]);
-
-            if (found.length > 0) {
-                targetCat = catName;
-                videos = found;
-                break;
-            }
+        // 2. 미분류 쌍 없음 → 완료
+        if (pairs.length === 0) {
+            return res.json({ classified: 0, remaining: 0, done: true, message: '미분류 영상이 없습니다.' });
         }
 
-        // 2. 미분류 영상 없음
-        if (!targetCat || videos.length === 0) {
-            const remaining = queryOne(`
-                SELECT COUNT(DISTINCT v.video_id) as cnt
-                FROM videos v
-                JOIN channels ch ON v.channel_id = ch.id AND ch.group_tag = '야담'
-                JOIN video_categories vc ON v.id = vc.video_id
-                JOIN categories c ON vc.category_id = c.id
-                WHERE c.group_name = '사건유형'
-                AND v.video_id NOT IN (SELECT DISTINCT video_id FROM video_sub_categories)
-            `)?.cnt || 0;
-            return res.json({ classified: 0, remaining, message: '미분류 영상이 없습니다.' });
-        }
+        // 3. 프롬프트 구성 — 등장한 카테고리만 서브 목록 포함
+        const usedCats = [...new Set(pairs.map(p => p.cat_name))];
+        const catSection = usedCats
+            .map(cat => `- ${cat}: ${SUB_CAT_MAP[cat].join(', ')}`)
+            .join('\n');
 
-        // 3. Gemini 1회 호출로 분류
-        const subCats = SUB_CAT_MAP[targetCat];
-        const prompt = `아래 유튜브 야담 영상들의 제목을 보고, 각 영상이 해당하는 세부 카테고리를 1개 선택하세요.
+        const prompt = `아래 유튜브 야담 영상들의 제목을 보고, 각 영상의 사건유형에 맞는 세부 카테고리를 1개 선택하세요.
 
-[사건유형: ${targetCat}]
-세부 카테고리 목록: ${subCats.join(', ')}
+카테고리별 세부 목록:
+${catSection}
 
 영상 목록:
-${videos.map((v, idx) => `${idx + 1}. ${v.video_id} | ${v.title}`).join('\n')}
+${pairs.map((p, idx) => `${idx + 1}. ${p.video_id} | ${p.cat_name} | ${p.title}`).join('\n')}
 
 응답 형식 (JSON 배열만 출력):
-[{"videoId":"영상ID","subCategory":"선택한세부카테고리"},...]
-주의: 반드시 위 세부 카테고리 목록에서만 선택하세요.`;
+[{"videoId":"dQ9W85cR0xM","catName":"복수극","subCategory":"선택한세부카테고리"},...]
+주의:
+- videoId는 | 앞의 영문/숫자 YouTube ID(11자리)를 그대로 사용하세요. 번호(1, 2, 3...)가 아닙니다.
+- subCategory는 반드시 해당 catName의 세부 목록에서만 선택하세요.`;
 
         const raw = await callGemini(prompt, { jsonMode: true, maxTokens: 65536 });
         if (!raw) {
@@ -474,37 +459,45 @@ ${videos.map((v, idx) => `${idx + 1}. ${v.video_id} | ${v.title}`).join('\n')}
 
         const classified = [];
         for (const item of results) {
-            if (!item.videoId || !item.subCategory) continue;
+            if (!item.videoId || !item.catName || !item.subCategory) continue;
+            const subCats = SUB_CAT_MAP[item.catName];
+            if (!subCats) continue;
             if (!subCats.includes(item.subCategory)) continue;
 
-            const video = videos.find(v => v.video_id === item.videoId);
-            if (!video) continue;
+            const pair = pairs.find(p => p.video_id === item.videoId && p.cat_name === item.catName);
+            if (!pair) continue;
 
-            runSQLNoSave(`INSERT OR IGNORE INTO sub_categories (parent_category_name, name) VALUES (?, ?)`, [targetCat, item.subCategory]);
-            const scRow = queryOne(`SELECT id FROM sub_categories WHERE parent_category_name = ? AND name = ?`, [targetCat, item.subCategory]);
+            runSQLNoSave(`INSERT OR IGNORE INTO sub_categories (parent_category_name, name) VALUES (?, ?)`, [item.catName, item.subCategory]);
+            const scRow = queryOne(`SELECT id FROM sub_categories WHERE parent_category_name = ? AND name = ?`, [item.catName, item.subCategory]);
             if (!scRow) continue;
 
             runSQLNoSave(`INSERT OR IGNORE INTO video_sub_categories (video_id, sub_category_id) VALUES (?, ?)`, [item.videoId, scRow.id]);
-            classified.push({ id: video.id, title: video.title, sub_category: item.subCategory });
+            classified.push({ id: pair.id, title: pair.title, cat_name: item.catName, sub_category: item.subCategory });
         }
         saveDB();
 
-        // 5. 남은 미분류 수 조회
-        const remaining = queryOne(`
-            SELECT COUNT(DISTINCT v.video_id) as cnt
+        // 5. 남은 미분류 쌍 수 조회
+        const remainingRow = queryOne(`
+            SELECT COUNT(*) as cnt
             FROM videos v
             JOIN channels ch ON v.channel_id = ch.id AND ch.group_tag = '야담'
             JOIN video_categories vc ON v.id = vc.video_id
-            JOIN categories c ON vc.category_id = c.id
-            WHERE c.group_name = '사건유형'
-            AND v.video_id NOT IN (SELECT DISTINCT video_id FROM video_sub_categories)
-        `)?.cnt || 0;
+            JOIN categories c ON vc.category_id = c.id AND c.group_name = '사건유형'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM video_sub_categories vsc
+                JOIN sub_categories sc ON vsc.sub_category_id = sc.id
+                WHERE vsc.video_id = v.video_id AND sc.parent_category_name = c.name
+            )
+        `);
+        const remaining = remainingRow?.cnt || 0;
+        const done = remaining === 0;
 
         res.json({
             classified: classified.length,
             remaining,
+            done,
             results: classified,
-            message: `${classified.length}건 분류 완료 (${targetCat}). 미분류 ${remaining}건 남음.`
+            message: `${classified.length}건 분류 완료. 미분류 ${remaining}건 남음.`
         });
 
     } catch (err) {

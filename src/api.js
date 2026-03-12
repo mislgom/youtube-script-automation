@@ -59,7 +59,7 @@ export const api = {
     getDashboard: () => request('/analysis/dashboard'),
     getKeywords: (limit) => request('/analysis/keywords', { params: { limit } }),
     getCategories: (group) => request('/analysis/categories', { params: group ? { group } : {} }),
-    compare: (data) => request('/analysis/compare', { method: 'POST', body: data }),
+
     getGaps: (params) => request('/analysis/gaps', { params }),
     getYadamGaps: () => request('/analysis/gaps/yadam'),
     getYadamDetailGrid: ({ eraId, eventId, sourceId }) => request('/analysis/gaps/yadam/detail', { params: { eraId, eventId, sourceId } }),
@@ -142,4 +142,10 @@ export const api = {
     getSpikeVideos: (data) => request('/analysis/gaps/spike-videos', { method: 'POST', body: data }),
     extractDna: (data) => request('/analysis/gaps/extract-dna', { method: 'POST', body: data }),
     suggestTopics: (data) => request('/analysis/gaps/suggest-topics', { method: 'POST', body: data }),
+
+    getDnaHistory: (category) => {
+        const params = category ? `?category=${encodeURIComponent(category)}` : '';
+        return request(`/analysis/gaps/dna-history${params}`);
+    },
+    getDnaDetail: (id) => request(`/analysis/gaps/dna-history/${id}`),
 };

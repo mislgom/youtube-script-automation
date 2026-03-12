@@ -17,11 +17,8 @@ let genaiModule = null;
 let aiClient = null;
 
 async function getVertexAccessToken() {
-    const keyFile = path.join(__dirname, 'youtube-namin-d9bf156bc77b.json');
-    const auth = new GoogleAuth({
-        keyFile,
-        scopes: ['https://www.googleapis.com/auth/cloud-platform']
-    });
+    // ADC(gcloud auth application-default login) 사용
+    const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
     const client = await auth.getClient();
     const token = await client.getAccessToken();
     return token.token;
@@ -64,29 +61,45 @@ export function resetClient() {
 export async function callGemini(prompt, options = {}) {
     const { jsonMode = false, useGoogleSearch = false, maxTokens = null } = options;
 
-    // AI Studio REST 전용 — DB settings의 gemini_api_key 사용
     const row = queryOne("SELECT value FROM settings WHERE key = 'gemini_api_key'");
     const apiKey = row?.value?.trim();
-    if (!apiKey) {
-        console.error('[AI] gemini_api_key가 설정되지 않았습니다. 설정 메뉴에서 AI Studio API 키를 입력하세요.');
-        return null;
-    }
 
     // 429 시 즉시 에러 반환 (재시도 없음 — 일일 쿼터 소진 상황에서 60초 대기+재시도는 의미 없음)
     let timer;
     try {
         const timeoutPromise = new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error('AI 분석 시간 초과 (90초). 모델이 응답하지 않거나 네트워크 상태가 불안정합니다.')), options.timeout || 90000);
+            timer = setTimeout(() => reject(new Error('AI 분석 시간 초과 (300초). 모델이 응답하지 않거나 네트워크 상태가 불안정합니다.')), options.timeout || 300000);
         });
 
         const fetchPromise = (async () => {
             const modelName = 'gemini-2.5-flash';
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-            logToFile(`[AI Request] AI Studio REST: ${modelName}`);
+            const cloudRunUrl = queryOne("SELECT value FROM settings WHERE key = 'cloud_run_url'")?.value?.trim();
+            const projectId = queryOne("SELECT value FROM settings WHERE key = 'google_project_id'")?.value?.trim();
+            let url, headers;
+            if (cloudRunUrl) {
+                // Cloud Run 프록시 사용
+                url = `${cloudRunUrl}/v1beta/models/${modelName}:generateContent`;
+                headers = { 'Content-Type': 'application/json' };
+                logToFile(`[AI Request] Cloud Run: ${url}`);
+            } else if (projectId) {
+                // Vertex AI 직접 호출 (ADC 사용)
+                const accessToken = await getVertexAccessToken();
+                const location = 'us-central1';
+                url = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:generateContent`;
+                headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}` };
+                logToFile(`[AI Request] Vertex AI: ${projectId}/${modelName}`);
+            } else if (apiKey) {
+                // AI Studio REST 폴백
+                url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+                headers = { 'Content-Type': 'application/json' };
+                logToFile(`[AI Request] AI Studio REST: ${modelName}`);
+            } else {
+                throw new Error('API 키가 설정되지 않았습니다. 설정 메뉴에서 Gemini API 키를 입력하세요.');
+            }
 
             const res = await fetch(url, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({
                     contents: [{ role: 'user', parts: [{ text: prompt }] }],
                     generationConfig: {
@@ -102,13 +115,14 @@ export async function callGemini(prompt, options = {}) {
             if (res.ok) {
                 const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
                 if (!text) {
-                    logToFile(`[AI Warning] AI Studio 응답성공했으나 결과가 비어있음: ${JSON.stringify(data)}`);
+                    logToFile(`[AI Warning] 응답 성공했으나 결과가 비어있음: ${JSON.stringify(data)}`);
                     return '';
                 }
+                logToFile(`[AI Response] 성공 (${text.length}자)`);
                 return text;
             }
 
-            logToFile(`[AI Error] AI Studio REST failed (${res.status}): ${JSON.stringify(data)}`);
+            logToFile(`[AI Error] API 호출 실패 (${res.status}): ${JSON.stringify(data)}`);
             throw new Error(data.error?.message || 'AI Studio Call Failed');
         })();
 
@@ -150,7 +164,7 @@ export async function callGemini(prompt, options = {}) {
             throw safetyErr;
         }
         if (err.message.includes('Timeout')) {
-            const timeoutErr = new Error('Gemini API 응답 시간 초과 (90초). 모델이 응답하지 않거나 네트워크 상태가 불안정합니다.');
+            const timeoutErr = new Error('Gemini API 응답 시간 초과 (300초). 모델이 응답하지 않거나 네트워크 상태가 불안정합니다.');
             timeoutErr.status = 504;
             timeoutErr.errorType = 'TIMEOUT';
             throw timeoutErr;
@@ -254,60 +268,6 @@ ${transcriptText.substring(0, 2000)}
 
     const result = await callGemini(prompt, { useGoogleSearch: true });
     return (result && typeof result === 'string') ? result.trim().substring(0, 300) : '';
-}
-
-// Compare new idea with existing videos (semantic similarity via AI)
-export async function compareWithGemini(ideaTitle, ideaDesc, existingVideos) {
-    if (existingVideos.length === 0) return [];
-
-    const videosStr = existingVideos.slice(0, 20).map((v, i) =>
-        `[ID:${v.id}] 제목: "${v.title}"\n${v.transcript_summary ? `주요내용: ${v.transcript_summary}\n` : (v.description ? `설명: ${v.description.substring(0, 200)}\n` : '')}`
-    ).join('\n---\n');
-
-    const prompt = `당신은 YouTube 콘텐츠 전략 및 시나리오 분석 전문가입니다.
-사용자가 제안한 새로운 아이디어와 기존 영상 데이터베이스를 대조하여 **독창성**을 평가해야 합니다.
-
-가장 중요한 규칙:
-1. **대본의 뼈대 및 전개 방식 100% 분석**: 제목이 비슷하더라도 세부적인 스토리 라인(기-승-전-결), 캐릭터의 설정, 주요 반전이 다르면 유사도 점수를 매우 낮게(0~30%) 책정하십시오.
-2. **중복되는 구체적인 구간/설정 명시**: 각 영상별로 어떤 구체적인 에피소드나 대화 장면이 유사한지 'overlap_details' 항목에 명확히 기술하십시오.
-3. **제목 함정 주의**: 제목이 완전히 같더라도 내용이 다르면 독창적인 것으로 간주하십시오. 반대로 제목이 달라도 줄거리의 흐름이 똑같으면 유사도를 높게 책정하십시오.
-
-새로운 아이디어:
-제목: ${ideaTitle}
-줄거리/설명: ${ideaDesc || '설명 없음'}
-
-비교 대상 기존 영상들:
----
-${videosStr}
----
-
-각 영상과 새 아이디어의 유사도를 0~100 점수로 평가하세요.
-JSON 배열로만 응답하세요:
-[
-  {
-    "id": 영상ID, 
-    "score": 유사도점수, 
-    "reason": "전체적인 유사 사유(20자 이내)", 
-    "overlap_details": "중복되는 구체적인 내용/구간 설명(40자 내외)",
-    "common_keywords": ["실제 중복되는 소재 키워드 1", "2"]
-  }, 
-  ...
-]
-
-상위 10개만 점수 높은 순으로 반환하세요.`;
-
-    const result = await callGemini(prompt, { useGoogleSearch: true });
-    if (!result || typeof result !== 'string') {
-        if (result && result.errorType) return result;
-        return [];
-    }
-
-    try {
-        const jsonStr = result.replace(/```json\n?/g, '').replace(/```/g, '').trim();
-        return JSON.parse(jsonStr);
-    } catch (e) {
-        return [];
-    }
 }
 
 // Suggest topics from gap data with DNA Benchmarking
